@@ -6,13 +6,13 @@ import { Providers } from '@/components/providers'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Hostiggo Admin Portal',
-  description: 'Support & Complaint Resolution Admin Portal',
+  title: 'Hostiggo Support',
+  description: 'Support & Complaint Resolution',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <body className={inter.className}>
         <Providers>{children}</Providers>
       </body>

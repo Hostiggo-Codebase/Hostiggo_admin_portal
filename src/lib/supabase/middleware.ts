@@ -26,25 +26,26 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
   const { pathname } = request.nextUrl
 
   // Protect admin routes
   if (pathname.startsWith('/admin')) {
-    // Check for NextAuth session via cookies or headers
-    const sessionToken = request.cookies.get('next-auth.session-token')?.value ||
-                        request.cookies.get('__Secure-next-auth.session-token')?.value
-
-    if (!sessionToken) {
+    if (!user) {
       return NextResponse.redirect(new URL('/login', request.url))
+    }
+    const role = user.app_metadata?.role
+    if (role !== 'agent' && role !== 'super_admin') {
+      return NextResponse.redirect(new URL('/', request.url))
     }
   }
 
   // Protect user support routes
   if (pathname.startsWith('/support')) {
-    const sessionToken = request.cookies.get('next-auth.session-token')?.value ||
-                        request.cookies.get('__Secure-next-auth.session-token')?.value
-
-    if (!sessionToken) {
+    if (!user) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
   }

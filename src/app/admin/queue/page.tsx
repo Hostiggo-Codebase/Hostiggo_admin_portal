@@ -37,12 +37,12 @@ export default function QueuePage() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <div className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-6 py-4 flex items-center gap-4">
-        <h1 className="text-lg font-semibold flex-1 text-slate-900 dark:text-white">Ticket Queue</h1>
+      <div className="border-b bg-white px-6 py-4 flex items-center gap-4">
+        <h1 className="text-lg font-semibold flex-1">Ticket Queue</h1>
         <select
           value={filterStatus}
           onChange={e => setFilterStatus(e.target.value as TicketStatus | '')}
-          className="border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm"
         >
           <option value="">All statuses</option>
           {STATUSES.map(s => <option key={s}>{s}</option>)}
@@ -50,32 +50,32 @@ export default function QueuePage() {
         <select
           value={filterPriority}
           onChange={e => setFilterPriority(e.target.value as PriorityLabel | '')}
-          className="border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm"
         >
           <option value="">All priorities</option>
           {['Urgent','Payment-Refund','Booking Help','General'].map(p => <option key={p}>{p}</option>)}
         </select>
         <button onClick={() => qc.invalidateQueries({ queryKey: ['queue'] })}
-          className="text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+          className="text-sm text-gray-500 hover:text-black">
           Refresh
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900">
+      <div className="flex-1 overflow-y-auto">
         {isLoading ? (
-          <div className="flex items-center justify-center h-40 text-slate-400 dark:text-slate-500">Loading…</div>
+          <div className="flex items-center justify-center h-40 text-gray-400">Loading…</div>
         ) : filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-40 text-slate-400 dark:text-slate-500">Queue is empty</div>
+          <div className="flex items-center justify-center h-40 text-gray-400">Queue is empty</div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+            <thead className="sticky top-0 bg-gray-50 border-b">
               <tr>
                 {['#', 'Subject', 'Priority', 'Status', 'SLA', 'Age', ''].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">{h}</th>
+                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+            <tbody className="divide-y divide-gray-100">
               {filtered.map(t => {
                 const breached = !t.first_response_at &&
                   (Date.now() - new Date(t.created_at).getTime()) >
@@ -83,13 +83,13 @@ export default function QueuePage() {
 
                 return (
                   <tr key={t.ticket_id}
-                    className={`hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${breached ? 'bg-red-50 dark:bg-red-950/20' : 'bg-white dark:bg-slate-950'}`}>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{t.ticket_number}</td>
+                    className={`hover:bg-gray-50 ${breached ? 'bg-red-50' : ''}`}>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{t.ticket_number}</td>
                     <td className="px-4 py-3">
-                      <p className="font-medium truncate max-w-xs text-slate-900 dark:text-white">{t.subject}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{(t.complaint_categories as { name: string } | null)?.name}</p>
+                      <p className="font-medium truncate max-w-xs">{t.subject}</p>
+                      <p className="text-xs text-gray-400">{(t.complaint_categories as { name: string } | null)?.name}</p>
                     </td>
-                    <td className="px-4 py-3 text-xs font-medium text-slate-700 dark:text-slate-300">{t.priority_label}</td>
+                    <td className="px-4 py-3 text-xs font-medium">{t.priority_label}</td>
                     <td className="px-4 py-3"><StatusBadge status={t.status as TicketStatus} /></td>
                     <td className="px-4 py-3">
                       <SlaBadge
@@ -98,10 +98,10 @@ export default function QueuePage() {
                         firstResponseAt={t.first_response_at}
                       />
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{timeAgo(t.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{timeAgo(t.created_at)}</td>
                     <td className="px-4 py-3">
                       <Link href={`/admin/tickets/${t.ticket_id}`}
-                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
+                        className="text-xs text-blue-600 hover:underline">
                         Open →
                       </Link>
                     </td>
