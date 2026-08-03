@@ -4,30 +4,63 @@
 
 @layer base {
   :root {
+    /* Light Mode */
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 15 23% 19%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 15 23% 19%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --popover-foreground: 15 23% 19%;
+    --primary: 219 89% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 160 84% 39%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 210 11% 91%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 266 87% 58%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 219 89% 52%;
     --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 15 23% 11%;
+    --foreground: 210 11% 96%;
+    --card: 15 23% 17%;
+    --card-foreground: 210 11% 96%;
+    --popover: 15 23% 17%;
+    --popover-foreground: 210 11% 96%;
+    --primary: 219 89% 62%;
+    --primary-foreground: 15 23% 11%;
+    --secondary: 160 84% 49%;
+    --secondary-foreground: 15 23% 11%;
+    --muted: 220 9% 32%;
+    --muted-foreground: 215 14% 66%;
+    --accent: 266 87% 68%;
+    --accent-foreground: 15 23% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 15 23% 11%;
+    --border: 220 13% 23%;
+    --input: 220 13% 23%;
+    --ring: 219 89% 62%;
   }
 }
 
 @layer base {
   * { @apply border-border; }
+  html { @apply scroll-smooth; }
   body { @apply bg-background text-foreground; }
+}
+
+/* Smooth transitions for theme switching */
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
