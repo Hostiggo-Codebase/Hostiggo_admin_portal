@@ -38,6 +38,7 @@ export function ChatPane({ ticketId, currentUserId, status, isAgent, showInterna
       queryClient.invalidateQueries({ queryKey: ['messages', ticketId] })
     },
     onError: (err: Error) => {
+      console.error('Error sending message:', err)
       if (err.message.includes('RATE_LIMITED')) {
         setRateLimited(true)
         setTimeout(() => setRateLimited(false), 10_000)

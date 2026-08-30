@@ -14,13 +14,22 @@ const schema = z.object({
   priorityLabel: z.enum(['Urgent','Payment-Refund','Booking Help','General']),
 })
 
+const FALLBACK_CATEGORIES = [
+  { id: '7072a038-fd0d-4388-808b-295ac2622b58', name: 'Payment' },
+  { id: '586cee2c-7581-40a1-af69-d58112ba9654', name: 'Booking' },
+  { id: 'e3417448-abaa-4dff-8f48-2537dbcd393a', name: 'Property' },
+  { id: '81db0c34-7adb-4662-bef3-3b343f1f79af', name: 'Refund' },
+  { id: '9a262873-de11-44c4-a443-de53aa84e977', name: 'Other' }
+]
+
 export default function NewTicketPage() {
   const router = useRouter()
   const [form, setForm] = useState({ categoryId: '', subject: '', description: '', priorityLabel: 'General' as PriorityLabel })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [duplicate, setDuplicate] = useState<string | null>(null)
 
-  const { data: categories = [], error: catError } = useQuery({ queryKey: ['categories'], queryFn: getCategories })
+  const { data: categoriesData = [], error: catError } = useQuery({ queryKey: ['categories'], queryFn: getCategories })
+  const categories = categoriesData.length > 0 ? categoriesData : FALLBACK_CATEGORIES
 
 
   const { mutate, isPending, error } = useMutation({
@@ -32,11 +41,16 @@ export default function NewTicketPage() {
     }),
     onSuccess: (data) => {
       if (data.duplicate) {
+        alert('Duplicate complaint detected: You already have an open ticket for this category.')
         setDuplicate(data.existing_ticket_id!)
       } else {
+        alert('Complaint submitted successfully!')
         router.push(`/support/tickets/${data.ticket_id}`)
       }
     },
+    onError: (err: any) => {
+      alert('Error submitting complaint: ' + err.message)
+    }
   })
 
   function handleSubmit(e: React.FormEvent) {
@@ -46,6 +60,7 @@ export default function NewTicketPage() {
       const errs: Record<string, string> = {}
       result.error.errors.forEach(e => { errs[e.path[0] as string] = e.message })
       setErrors(errs)
+      alert('Validation Error:\n' + Object.values(errs).join('\n'))
       return
     }
     setErrors({})

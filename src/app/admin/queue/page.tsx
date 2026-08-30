@@ -26,7 +26,9 @@ export default function QueuePage() {
 
   const [agentId, setAgentId] = useState<string | null>(null)
   useState(() => {
-    createClient().auth.getUser().then(({ data }) => setAgentId(data.user?.id ?? null))
+    createClient().auth.getUser().then(({ data }) => {
+      setAgentId(data.user?.id ?? null)
+    })
   })
   useMyAssignments(agentId)
 

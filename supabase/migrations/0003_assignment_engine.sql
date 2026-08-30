@@ -22,6 +22,7 @@ begin
   return new;
 end $$;
 
+drop trigger if exists trg_enforce_message_rate_limit on chat_messages;
 create trigger trg_enforce_message_rate_limit
   before insert on chat_messages
   for each row execute function enforce_message_rate_limit();
@@ -123,6 +124,7 @@ begin
   return null;
 end $$;
 
+drop trigger if exists trg_on_ticket_insert_assign on support_tickets;
 create trigger trg_on_ticket_insert_assign
   after insert on support_tickets
   for each row execute function on_ticket_insert_assign();
