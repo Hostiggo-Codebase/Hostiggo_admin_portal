@@ -19,6 +19,12 @@ export function getSocket(): Socket {
   return socketInstance
 }
 
+// Eagerly connect socket on client load
+if (typeof window !== 'undefined') {
+  getSocket()
+}
+
+
 export function useTicketChat(ticketId: string) {
   const queryClient = useQueryClient()
 

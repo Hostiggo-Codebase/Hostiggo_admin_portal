@@ -190,10 +190,16 @@ export default function DummyMobileApp() {
     }
   }
 
+  // Connect Socket.io eagerly on app load
+  useEffect(() => {
+    getMobileSocket()
+  }, [])
+
   // Fetch Tickets for active user
   useEffect(() => {
     fetchUserTickets()
   }, [activeUser])
+
 
   // Subscribe to Socket.io Realtime Chat Messages for selected ticket with 1.5s live sync fallback
   useEffect(() => {
