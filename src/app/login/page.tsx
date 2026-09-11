@@ -34,6 +34,9 @@ export default function LoginPage() {
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/`,
+        queryParams: {
+          prompt: 'select_account',
+        },
       },
     })
     if (error) {

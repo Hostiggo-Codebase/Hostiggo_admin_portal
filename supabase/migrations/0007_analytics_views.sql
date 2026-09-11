@@ -74,3 +74,11 @@ from support_tickets t
 join sla_targets s on s.priority_label = t.priority_label
 where t.created_at > now() - interval '30 days'
 group by t.priority_label, s.first_response_ms;
+
+-- Analytics views: grant SELECT here (after the views exist).
+-- security_invoker = true means underlying-table RLS still applies per user.
+GRANT SELECT ON
+  analytics_resolution_time, analytics_tickets_by_category,
+  analytics_agent_load, analytics_csat, analytics_sla_breach
+TO authenticated;
+

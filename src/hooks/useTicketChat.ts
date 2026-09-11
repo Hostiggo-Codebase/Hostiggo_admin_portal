@@ -1,49 +1,61 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { createClient } from '@/lib/supabase/client'
+import { io, Socket } from 'socket.io-client'
+
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:4000'
+
+let socketInstance: Socket | null = null
+
+export function getSocket(): Socket {
+  if (!socketInstance) {
+    socketInstance = io(SOCKET_URL, {
+      transports: ['websocket', 'polling'],
+      autoConnect: true,
+    })
+  }
+  return socketInstance
+}
 
 export function useTicketChat(ticketId: string) {
   const queryClient = useQueryClient()
-  const channelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
 
   useEffect(() => {
     if (!ticketId) return
-    const supabase = createClient()
 
-    const channel = supabase
-      .channel(`ticket:${ticketId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-          filter: `ticket_id=eq.${ticketId}`,
-        },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['messages', ticketId] })
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'support_tickets',
-          filter: `ticket_id=eq.${ticketId}`,
-        },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
-        }
-      )
-      .subscribe()
+    const socket = getSocket()
 
-    channelRef.current = channel
+    // Join ticket chat room on Socket.io server
+    socket.emit('join_ticket', { ticket_id: ticketId })
+
+    const handleNewMessage = (msg: any) => {
+      console.log('[Socket.io Admin] New message received:', msg)
+      queryClient.invalidateQueries({ queryKey: ['messages', ticketId] })
+    }
+
+    const handleTicketUpdated = (data: any) => {
+      console.log('[Socket.io Admin] Ticket updated:', data)
+      queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
+      queryClient.invalidateQueries({ queryKey: ['queue'] })
+    }
+
+    socket.on('new_message', handleNewMessage)
+    socket.on('ticket_updated', handleTicketUpdated)
+    socket.on('queue_updated', handleTicketUpdated)
+
+    // Fallback Poll every 1.5 seconds while chat view is active
+    const pollInterval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ['messages', ticketId] })
+    }, 1500)
 
     return () => {
-      supabase.removeChannel(channel)
+      socket.emit('leave_ticket', { ticket_id: ticketId })
+      socket.off('new_message', handleNewMessage)
+      socket.off('ticket_updated', handleTicketUpdated)
+      socket.off('queue_updated', handleTicketUpdated)
+      clearInterval(pollInterval)
     }
   }, [ticketId, queryClient])
 }
+

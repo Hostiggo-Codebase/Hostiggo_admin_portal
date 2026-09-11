@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { ChatPane } from '@/components/chat/chat-pane'
 import { TicketSidePanel } from '@/components/admin/ticket-side-panel'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -8,6 +9,10 @@ import type { TicketStatus, TicketWithDetails } from '@/types/app'
 
 export const dynamic = 'force-dynamic'
 
+const SECONDARY_URL = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_URL || 'https://vbqwitfzrglqojiijtmu.supabase.co'
+const SECONDARY_KEY = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZicXdpdGZ6cmdscW9qaWlqdG11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMzU0MTEsImV4cCI6MjEwNDYxMTQxMX0.9EkrIrSKCU0KHsQBEAGT1koL852XuKUPKknEU7CTx0s'
+const secondaryClient = createSupabaseClient(SECONDARY_URL, SECONDARY_KEY)
+
 export default async function AdminTicketPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createClient()
@@ -15,13 +20,66 @@ export default async function AdminTicketPage({ params }: { params: Promise<{ id
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: ticket } = await supabase
-    .from('support_tickets')
-    .select('*, complaint_categories(id, name), ticket_status_history(id, from_status, to_status, note, created_at, changed_by)')
-    .eq('ticket_id', id)
-    .single() as { data: TicketWithDetails | null }
+  let ticket: TicketWithDetails | null = null
 
-  if (!ticket) redirect('/admin/queue')
+  // 1. Try Primary Local DB
+  try {
+    const { data: localTicket } = await supabase
+      .from('support_tickets')
+      .select('*, complaint_categories(id, name), ticket_status_history(id, from_status, to_status, note, created_at, changed_by)')
+      .eq('ticket_id', id)
+      .maybeSingle() as { data: TicketWithDetails | null }
+    if (localTicket) ticket = localTicket
+  } catch (e) {
+    console.log('Local ticket fetch error:', e)
+  }
+
+  // 2. Try FDW view (plain select * without relational join)
+  if (!ticket) {
+    try {
+      const { data: fdwTicket } = await (supabase as any)
+        .from('fdw_support_tickets')
+        .select('*')
+        .eq('ticket_id', id)
+        .maybeSingle()
+
+      if (fdwTicket) {
+        ticket = {
+          ...fdwTicket,
+          complaint_categories: { id: fdwTicket.category_id || '', name: 'General' },
+          ticket_status_history: [],
+        } as unknown as TicketWithDetails
+      }
+    } catch (e) {
+      console.log('FDW ticket fetch error:', e)
+    }
+  }
+
+  // 3. Try Secondary Supabase Client Direct Fallback
+  if (!ticket) {
+    try {
+      const { data: secTicket } = await secondaryClient
+        .from('support_tickets')
+        .select('*')
+        .eq('ticket_id', id)
+        .maybeSingle()
+
+      if (secTicket) {
+        ticket = {
+          ...secTicket,
+          ticket_number: secTicket.ticket_number || `HG-${id.slice(0, 5)}`,
+          complaint_categories: { id: secTicket.category_id || '', name: 'General' },
+          ticket_status_history: [],
+        } as unknown as TicketWithDetails
+      }
+    } catch (e) {
+      console.log('Secondary ticket fetch error:', e)
+    }
+  }
+
+  if (!ticket) {
+    redirect('/admin/queue')
+  }
 
   const role = user.app_metadata?.role
   const isSA = role === 'super_admin'

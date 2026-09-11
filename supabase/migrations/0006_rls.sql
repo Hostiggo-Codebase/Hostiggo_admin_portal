@@ -260,12 +260,6 @@ GRANT SELECT ON
   sla_targets, status_transitions, system_config
 TO authenticated;
 
--- Analytics views
-GRANT SELECT ON
-  analytics_resolution_time, analytics_tickets_by_category,
-  analytics_agent_load, analytics_csat, analytics_sla_breach
-TO authenticated;
-
 -- complaint_categories is public (no sensitive data)
 GRANT SELECT ON complaint_categories TO anon;
 

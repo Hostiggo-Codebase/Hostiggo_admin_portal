@@ -89,6 +89,18 @@ export async function setDisconnectGrace(ticketId: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function getMessages(ticketId: string): Promise<ChatMessage[]> {
+  try {
+    const res = await fetch(`/api/messages?ticketId=${ticketId}`)
+    if (res.ok) {
+      const data = await res.json()
+      if (Array.isArray(data)) {
+        return data as ChatMessage[]
+      }
+    }
+  } catch (e) {
+    console.log('Error fetching /api/messages:', e)
+  }
+
   const supabase = createClient()
   const { data, error } = await supabase
     .from('chat_messages')
@@ -100,6 +112,24 @@ export async function getMessages(ticketId: string): Promise<ChatMessage[]> {
 }
 
 export async function sendMessage(params: SendMessageParams): Promise<string> {
+  try {
+    const res = await fetch('/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ticketId: params.ticketId,
+        body: params.body,
+        isInternalNote: params.isInternalNote ?? false,
+      }),
+    })
+    if (res.ok) {
+      const { messageId } = await res.json()
+      if (messageId) return messageId
+    }
+  } catch (e) {
+    console.log('Error sending /api/messages:', e)
+  }
+
   const { data, error } = await rpc('send_message', {
     p_ticket_id:        params.ticketId,
     p_body:             params.body,
@@ -114,13 +144,24 @@ export async function sendMessage(params: SendMessageParams): Promise<string> {
 // ---------------------------------------------------------------------------
 
 export async function getQueueTickets(): Promise<TicketListRow[]> {
+  try {
+    const res = await fetch('/api/queue')
+    if (res.ok) {
+      const data = await res.json()
+      if (Array.isArray(data)) {
+        return data as TicketListRow[]
+      }
+    }
+  } catch (e) {
+    console.log('Error fetching /api/queue:', e)
+  }
+
   const supabase = createClient()
   const { data, error } = await supabase
     .from('support_tickets')
     .select('ticket_id, ticket_number, subject, status, priority, priority_label, queued_at, assigned_at, first_response_at, created_at, assigned_agent_id, complaint_categories(name)')
     .in('status', ['QUEUED','ASSIGNED','ACTIVE','WAITING_ON_USER','ESCALATED','REOPENED'])
     .order('priority', { ascending: true })
-    .order('queued_at', { ascending: true })
   if (error) throw error
   return (data ?? []) as unknown as TicketListRow[]
 }
@@ -130,17 +171,59 @@ export async function getMyAssignedTickets(): Promise<TicketListRow[]> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('unauthenticated')
 
-  const { data, error } = await supabase
-    .from('support_tickets')
-    .select('ticket_id, ticket_number, subject, status, priority, priority_label, queued_at, assigned_at, first_response_at, created_at, assigned_agent_id, complaint_categories(name)')
-    .eq('assigned_agent_id', user.id)
-    .in('status', ['ASSIGNED', 'ACTIVE', 'WAITING_ON_USER'])
-    .order('assigned_at', { ascending: false })
-  if (error) throw error
-  return (data ?? []) as unknown as TicketListRow[]
+  let fdwTickets: any[] = []
+  let localTickets: any[] = []
+
+  try {
+    const { data: prodData, error: prodErr } = await supabase
+      .from('fdw_support_tickets' as any)
+      .select('*')
+      .eq('assigned_agent_id', user.id)
+      .in('status', ['ASSIGNED', 'ACTIVE', 'WAITING_ON_USER'])
+
+    if (!prodErr && prodData) {
+      fdwTickets = prodData
+    }
+  } catch (e) {
+    console.log('FDW assigned error:', e)
+  }
+
+  try {
+    const { data: localData, error: localErr } = await supabase
+      .from('support_tickets')
+      .select('ticket_id, ticket_number, subject, status, priority, priority_label, queued_at, assigned_at, first_response_at, created_at, assigned_agent_id, complaint_categories(name)')
+      .eq('assigned_agent_id', user.id)
+      .in('status', ['ASSIGNED', 'ACTIVE', 'WAITING_ON_USER'])
+
+    if (!localErr && localData) {
+      localTickets = localData
+    }
+  } catch (e) {
+    console.log('Local assigned error:', e)
+  }
+
+  const combinedMap = new Map<string, any>()
+  for (const t of [...fdwTickets, ...localTickets]) {
+    if (t && t.ticket_id) {
+      combinedMap.set(t.ticket_id, t)
+    }
+  }
+
+  return Array.from(combinedMap.values()) as unknown as TicketListRow[]
 }
 
 export async function changeStatus(ticketId: string, newStatus: TicketStatus, note?: string): Promise<void> {
+  try {
+    const res = await fetch('/api/tickets/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'change_status', ticketId, newStatus, note }),
+    })
+    if (res.ok) return
+  } catch (e) {
+    console.log('Error in API ticket action changeStatus:', e)
+  }
+
   const { error } = await rpc('change_status', {
     p_ticket_id:  ticketId,
     p_new_status: newStatus,
@@ -150,14 +233,61 @@ export async function changeStatus(ticketId: string, newStatus: TicketStatus, no
 }
 
 export async function escalateTicket(ticketId: string, reason: string): Promise<void> {
+  try {
+    const res = await fetch('/api/tickets/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'escalate_ticket', ticketId, reason }),
+    })
+    if (res.ok) return
+  } catch (e) {
+    console.log('Error in API ticket action escalateTicket:', e)
+  }
+
   const { error } = await rpc('escalate_ticket', { p_ticket_id: ticketId, p_reason: reason })
   if (error) throw error
 }
 
 export async function transferTicket(ticketId: string, toAgent: string): Promise<void> {
+  try {
+    const res = await fetch('/api/tickets/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'transfer_ticket', ticketId, toAgent }),
+    })
+    if (res.ok) return
+  } catch (e) {
+    console.log('Error in API ticket action transferTicket:', e)
+  }
+
   const { error } = await rpc('transfer_ticket', { p_ticket_id: ticketId, p_to_agent: toAgent })
   if (error) throw error
 }
+
+// Claim one specific QUEUED ticket for the calling agent → sets to ACTIVE
+export async function takeTicket(ticketId: string): Promise<void> {
+  try {
+    const res = await fetch('/api/tickets/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'take_ticket', ticketId }),
+    })
+    if (res.ok) return
+  } catch (e) {
+    console.log('Error in API ticket action takeTicket:', e)
+  }
+
+  const { error } = await rpc('take_ticket', { p_ticket_id: ticketId })
+  if (error) throw error
+}
+
+// Claim up to `limit` QUEUED tickets in priority order (batch review workflow)
+export async function fetchReviewBatch(limit = 10): Promise<string[]> {
+  const { data, error } = await rpc('fetch_review_batch', { p_limit: limit })
+  if (error) throw error
+  return (data ?? []) as string[]
+}
+
 
 export async function setAgentPresence(status: AgentPresenceStatus, accepting: boolean): Promise<void> {
   const { error } = await rpc('set_agent_presence', { p_status: status, p_accepting: accepting })
@@ -427,8 +557,6 @@ export async function getAvailableAgents(): Promise<AgentRow[]> {
     .from('admin_users')
     .select('admin_id, display_name, active_chat_count, agent_status')
     .eq('agent_status', 'ONLINE')
-    .eq('accepting_new_chats', true)
-    .lt('active_chat_count', 2)
     .order('active_chat_count', { ascending: true })
   if (error) throw error
   return (data ?? []) as AgentRow[]
