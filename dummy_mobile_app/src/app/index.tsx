@@ -14,7 +14,8 @@ import {
 import { supabase } from '../lib/supabase'
 import { io, Socket } from 'socket.io-client'
 
-const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'http://localhost:4000'
+const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://hostiggo-admin-portal.onrender.com'
+
 let mobileSocket: Socket | null = null
 
 function getMobileSocket(): Socket {
