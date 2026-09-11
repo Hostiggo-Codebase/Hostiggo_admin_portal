@@ -15,6 +15,14 @@ export function getSocket(): Socket {
       transports: ['websocket', 'polling'],
       autoConnect: true,
     })
+
+    socketInstance.on('connect', () => {
+      console.log('🟢 [Socket.io Admin] Connected to Live Socket Server! ID:', socketInstance?.id)
+    })
+
+    socketInstance.on('connect_error', (err) => {
+      console.error('🔴 [Socket.io Admin] Connection Error:', err.message)
+    })
   }
   return socketInstance
 }
@@ -23,6 +31,7 @@ export function getSocket(): Socket {
 if (typeof window !== 'undefined') {
   getSocket()
 }
+
 
 
 export function useTicketChat(ticketId: string) {

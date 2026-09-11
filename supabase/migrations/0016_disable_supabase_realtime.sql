@@ -4,6 +4,7 @@
 -- =============================================================================
 
 -- Remove tables from supabase_realtime publication
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.support_tickets;
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.chat_messages;
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.complaint_categories;
+ALTER PUBLICATION supabase_realtime DROP TABLE public.support_tickets;
+ALTER PUBLICATION supabase_realtime DROP TABLE public.chat_messages;
+ALTER PUBLICATION supabase_realtime DROP TABLE public.complaint_categories;
+

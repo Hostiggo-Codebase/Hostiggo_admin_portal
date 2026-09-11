@@ -24,9 +24,18 @@ function getMobileSocket(): Socket {
       transports: ['websocket', 'polling'],
       autoConnect: true,
     })
+
+    mobileSocket.on('connect', () => {
+      console.log('🟢 [Socket.io Mobile] Connected to Live Socket Server! ID:', mobileSocket?.id)
+    })
+
+    mobileSocket.on('connect_error', (err) => {
+      console.error('🔴 [Socket.io Mobile] Connection Error:', err.message)
+    })
   }
   return mobileSocket
 }
+
 
 
 // Simulated User Profiles
