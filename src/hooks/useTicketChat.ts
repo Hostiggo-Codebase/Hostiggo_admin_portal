@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { io, Socket } from 'socket.io-client'
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'https://hostiggo-admin-portal.onrender.com'
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'https://hostiggoadminportal-production.up.railway.app'
 
 
 let socketInstance: Socket | null = null

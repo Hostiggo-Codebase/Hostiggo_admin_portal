@@ -14,7 +14,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { io, Socket } from 'socket.io-client'
 
-const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://hostiggo-admin-portal.onrender.com'
+const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://hostiggoadminportal-production.up.railway.app'
 
 let mobileSocket: Socket | null = null
 
