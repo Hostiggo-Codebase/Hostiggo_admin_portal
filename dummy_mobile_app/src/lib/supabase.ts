@@ -2,8 +2,9 @@ import 'react-native-url-polyfill/auto'
 import { createClient } from '@supabase/supabase-js'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://vbqwitfzrglqojiijtmu.supabase.co'
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZicXdpdGZ6cmdscW9qaWlqdG11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMzU0MTEsImV4cCI6MjEwNDYxMTQxMX0.9EkrIrSKCU0KHsQBEAGT1koL852XuKUPKknEU7CTx0s'
+// Secondary DB linked via FDW to Admin Portal — tickets appear in admin queue
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://jhihqmkqvbwfniwculhk.supabase.co'
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoaWhxbWtxdmJ3Zm5pd2N1bGhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3MTM1NzgsImV4cCI6MjA3OTI4OTU3OH0.b7AUBFdFMK0XJo8Q3xMzruma60vyj-4CgMrKFPgMenk'
 
 // SSR-safe storage adapter for Expo Router Web & Native
 const SSRSafeStorage = {

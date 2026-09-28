@@ -45,6 +45,14 @@ io.on('connection', (socket) => {
     console.log(`[Socket.io] Socket ${socket.id} left room ${roomName}`)
   })
 
+  // Used by clients that have already persisted their own message directly to
+  // Supabase. Broadcasting separately avoids a second database insert.
+  socket.on('broadcast_message', ({ ticket_id, message }) => {
+    if (!ticket_id || !message) return
+    io.to(`ticket:${ticket_id}`).emit('new_message', message)
+    io.emit('global_chat_activity', { ticket_id, message })
+  })
+
   // Send & broadcast real-time chat message
   socket.on('send_message', async (data) => {
     const { ticket_id, sender_id, sender_type, body, is_internal_note = false } = data

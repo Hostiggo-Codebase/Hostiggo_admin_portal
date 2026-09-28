@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { secondaryClient } from '@/lib/supabase/secondary'
 import { NextResponse } from 'next/server'
 
 export async function GET() {
@@ -25,6 +26,24 @@ export async function GET() {
       }
     } catch (e) {
       console.log('FDW fetch error:', e)
+    }
+
+    // FDW can be unavailable while the secondary project's API remains healthy.
+    // Keep the operational queue available during an FDW connection outage.
+    if (fdwTickets.length === 0) {
+      try {
+        const { data: secondaryTickets, error: secondaryError } = await secondaryClient
+          .from('support_tickets')
+          .select('*')
+
+        if (secondaryError) {
+          console.error('Secondary queue fetch error:', secondaryError.message)
+        } else if (secondaryTickets) {
+          fdwTickets = secondaryTickets
+        }
+      } catch (e) {
+        console.error('Secondary queue fetch exception:', e)
+      }
     }
 
     // 2. Fetch from local table

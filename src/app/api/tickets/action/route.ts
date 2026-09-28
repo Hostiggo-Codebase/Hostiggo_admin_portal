@@ -1,11 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { secondaryClient } from '@/lib/supabase/secondary'
 import { NextResponse } from 'next/server'
-
-const SECONDARY_URL = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_URL || 'https://vbqwitfzrglqojiijtmu.supabase.co'
-const SECONDARY_KEY = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZicXdpdGZ6cmdscW9qaWlqdG11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMzU0MTEsImV4cCI6MjEwNDYxMTQxMX0.9EkrIrSKCU0KHsQBEAGT1koL852XuKUPKknEU7CTx0s'
-
-const secondaryClient = createSupabaseClient(SECONDARY_URL, SECONDARY_KEY)
 
 export async function POST(request: Request) {
   try {

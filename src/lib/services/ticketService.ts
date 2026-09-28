@@ -111,7 +111,12 @@ export async function getMessages(ticketId: string): Promise<ChatMessage[]> {
   return (data ?? []) as unknown as ChatMessage[]
 }
 
-export async function sendMessage(params: SendMessageParams): Promise<string> {
+export type SentMessage = {
+  messageId: string
+  message?: ChatMessage
+}
+
+export async function sendMessage(params: SendMessageParams): Promise<SentMessage> {
   try {
     const res = await fetch('/api/messages', {
       method: 'POST',
@@ -123,8 +128,8 @@ export async function sendMessage(params: SendMessageParams): Promise<string> {
       }),
     })
     if (res.ok) {
-      const { messageId } = await res.json()
-      if (messageId) return messageId
+      const { messageId, message } = await res.json()
+      if (messageId) return { messageId, message }
     }
   } catch (e) {
     console.log('Error sending /api/messages:', e)
@@ -136,7 +141,7 @@ export async function sendMessage(params: SendMessageParams): Promise<string> {
     p_is_internal_note: params.isInternalNote ?? false,
   })
   if (error) throw error
-  return data as string
+  return { messageId: data as string }
 }
 
 // ---------------------------------------------------------------------------

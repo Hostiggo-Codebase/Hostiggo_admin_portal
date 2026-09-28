@@ -350,13 +350,26 @@ export default function DummyMobileApp() {
     setNewMessage('')
 
     try {
-      // 1. Emit send_message via Socket.io server (persists to DB and broadcasts to room)
+      // Persist first. A temporary Socket.io outage must not discard a user's message.
+      const { data: message, error } = await supabase
+        .from('chat_messages')
+        .insert({
+          ticket_id: selectedTicket.ticket_id,
+          sender_id: activeUser.id,
+          sender_type: 'user',
+          body: messageText,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+
+      // The socket server only broadcasts this already-persisted message, so it
+      // cannot create a duplicate row.
       const socket = getMobileSocket()
-      socket.emit('send_message', {
+      socket.emit('broadcast_message', {
         ticket_id: selectedTicket.ticket_id,
-        sender_id: activeUser.id,
-        sender_type: 'user',
-        body: messageText,
+        message,
       })
 
       fetchTicketMessages(selectedTicket.ticket_id)

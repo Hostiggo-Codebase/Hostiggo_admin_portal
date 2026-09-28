@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMessages, sendMessage, setDisconnectGrace } from '@/lib/services/ticketService'
-import { useTicketChat } from '@/hooks/useTicketChat'
+import { getSocket, useTicketChat } from '@/hooks/useTicketChat'
 import { useTypingIndicator } from '@/hooks/useTypingIndicator'
 import { MessageBubble } from './message-bubble'
 import type { TicketStatus } from '@/types/app'
@@ -33,9 +33,12 @@ export function ChatPane({ ticketId, currentUserId, status, isAgent, showInterna
 
   const { mutate: send, isPending } = useMutation({
     mutationFn: () => sendMessage({ ticketId, body: body.trim(), isInternalNote: isInternal }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       setBody('')
       queryClient.invalidateQueries({ queryKey: ['messages', ticketId] })
+      if (result.message) {
+        getSocket().emit('broadcast_message', { ticket_id: ticketId, message: result.message })
+      }
     },
     onError: (err: Error) => {
       console.error('Error sending message:', err)
