@@ -36,7 +36,7 @@ export const authConfig = {
     strategy: 'jwt' as const,
     maxAge: 30 * 24 * 60 * 60,
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || 'build-time-secret-placeholder-minimum-32-chars-long',
   callbacks: {
     async jwt({ token, user, account }: { token: JWT; user?: any; account?: Account | null }) {
       if (account) {
