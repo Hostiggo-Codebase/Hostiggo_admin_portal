@@ -46,3 +46,6 @@ coverage/
 # System files
 .git/
 .gitkeep
+
+# Local Netlify folder
+.netlify
