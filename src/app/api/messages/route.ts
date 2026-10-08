@@ -141,14 +141,6 @@ export async function POST(request: Request) {
         .single()
 
       if (!secErr && secMsg) {
-        // Broadcast WebSocket message to mobile app
-        const channel = secondaryClient.channel(`ticket:${ticketId}`)
-        channel.send({
-          type: 'broadcast',
-          event: 'new_message',
-          payload: secMsg,
-        })
-
         return NextResponse.json({ success: true, messageId: secMsg.id, message: secMsg })
       }
     } catch (e) {
@@ -156,7 +148,7 @@ export async function POST(request: Request) {
     }
 
     // 2. Fallback to local RPC send_message
-    const { data, error } = await (supabase as any).rpc('send_message', {
+    const { data: rpcMessageId, error } = await (supabase as any).rpc('send_message', {
       p_ticket_id: ticketId,
       p_body: body,
       p_is_internal_note: isInternalNote ?? false,
@@ -182,7 +174,17 @@ export async function POST(request: Request) {
       throw error
     }
 
-    return NextResponse.json({ success: true, messageId: data })
+    const synthesizedRpcMsg = {
+      id: rpcMessageId || crypto.randomUUID(),
+      ticket_id: ticketId,
+      sender_id: agentId,
+      sender_type: 'agent',
+      body: body,
+      is_internal_note: isInternalNote ?? false,
+      created_at: new Date().toISOString(),
+    }
+
+    return NextResponse.json({ success: true, messageId: rpcMessageId, message: synthesizedRpcMsg })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

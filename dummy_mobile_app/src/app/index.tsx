@@ -14,15 +14,28 @@ import {
 import { supabase } from '../lib/supabase'
 import { io, Socket } from 'socket.io-client'
 
-const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://hostiggoadminportal-production.up.railway.app'
+function getMobileSocketUrl(): string {
+  if (process.env.EXPO_PUBLIC_SOCKET_URL) {
+    return process.env.EXPO_PUBLIC_SOCKET_URL
+  }
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return 'http://localhost:4000'
+  }
+  return 'http://localhost:4000'
+}
 
 let mobileSocket: Socket | null = null
 
 function getMobileSocket(): Socket {
   if (!mobileSocket) {
-    mobileSocket = io(SOCKET_URL, {
+    const socketUrl = getMobileSocketUrl()
+    console.log('🔌 [Socket.io Mobile] Connecting to WebSocket Server:', socketUrl)
+
+    mobileSocket = io(socketUrl, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
     })
 
     mobileSocket.on('connect', () => {
@@ -300,6 +313,8 @@ export default function DummyMobileApp() {
         p_booking_id: selectedBooking.id,
       })
 
+      let newTicketObj: any = null
+
       if (error) {
         // Direct insert fallback if RPC not deployed on this instance
         const { data: insertData, error: insertErr } = await supabase
@@ -319,6 +334,7 @@ export default function DummyMobileApp() {
         if (insertErr) throw insertErr
 
         if (insertData) {
+          newTicketObj = insertData
           // Insert initial opening message into chat_messages
           await supabase.from('chat_messages').insert({
             ticket_id: insertData.ticket_id,
@@ -329,11 +345,15 @@ export default function DummyMobileApp() {
         }
         alertSuccess('Ticket Created Successfully!')
       } else {
+        newTicketObj = data
         alertSuccess('Ticket Created Successfully!')
       }
 
       setSubject('')
       setDescription('')
+      if (newTicketObj && newTicketObj.ticket_id) {
+        setSelectedTicket(newTicketObj)
+      }
       fetchUserTickets()
       setActiveTab('tickets')
     } catch (err: any) {

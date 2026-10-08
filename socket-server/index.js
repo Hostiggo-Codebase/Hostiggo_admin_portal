@@ -3,6 +3,7 @@ import express from 'express'
 import { Server } from 'socket.io'
 import cors from 'cors'
 import { createClient } from '@supabase/supabase-js'
+import ws from 'ws'
 
 const app = express()
 app.use(cors())
@@ -20,7 +21,10 @@ const io = new Server(server, {
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://jhihqmkqvbwfniwculhk.supabase.co'
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoaWhxbWtxdmJ3Zm5pd2N1bGhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3MTM1NzgsImV4cCI6MjA3OTI4OTU3OH0.b7AUBFdFMK0XJo8Q3xMzruma60vyj-4CgMrKFPgMenk'
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: false },
+  global: { WebSocket: ws },
+})
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() })

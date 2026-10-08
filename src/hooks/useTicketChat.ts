@@ -4,16 +4,28 @@ import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { io, Socket } from 'socket.io-client'
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'https://hostiggoadminportal-production.up.railway.app'
-
+function getSocketUrl(): string {
+  if (process.env.NEXT_PUBLIC_SOCKET_URL) {
+    return process.env.NEXT_PUBLIC_SOCKET_URL
+  }
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return 'http://localhost:4000'
+  }
+  return 'https://hostiggoadminportal-production.up.railway.app'
+}
 
 let socketInstance: Socket | null = null
 
 export function getSocket(): Socket {
   if (!socketInstance) {
-    socketInstance = io(SOCKET_URL, {
+    const socketUrl = getSocketUrl()
+    console.log('🔌 [Socket.io Admin] Connecting to WebSocket Server:', socketUrl)
+
+    socketInstance = io(socketUrl, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
     })
 
     socketInstance.on('connect', () => {

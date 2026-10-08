@@ -5,6 +5,6 @@ builder = "NIXPACKS"
 nodeVersion = "22"
 
 [deploy]
-startCommand = "npm start"
+startCommand = "cd socket-server && npm install && node index.js"
 healthcheckPath = "/health"
 healthcheckTimeout = 100
