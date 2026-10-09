@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getQueueTickets, fetchReviewBatch } from '@/lib/services/ticketService'
@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { timeAgo } from '@/lib/utils'
 import type { TicketStatus, PriorityLabel } from '@/types/app'
 import { Layers } from 'lucide-react'
+import { getSocket } from '@/hooks/useTicketChat'
 
 const STATUSES: TicketStatus[] = ['QUEUED','ASSIGNED','ACTIVE','WAITING_ON_USER','ESCALATED','REOPENED']
 const PRIORITIES: PriorityLabel[] = ['Urgent','Payment-Refund','Booking Help','General']
@@ -22,8 +23,24 @@ export default function QueuePage() {
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ['queue'],
     queryFn: getQueueTickets,
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
   })
+
+  // Live: the socket server tells agents when a customer writes (new ticket or new message).
+  useEffect(() => {
+    const socket = getSocket()
+    const join = () => socket.emit('join_agents')
+    const refresh = () => qc.invalidateQueries({ queryKey: ['queue'] })
+    if (socket.connected) join()
+    socket.on('connect', join)
+    socket.on('queue_updated', refresh)
+    socket.on('global_chat_activity', refresh)
+    return () => {
+      socket.off('connect', join)
+      socket.off('queue_updated', refresh)
+      socket.off('global_chat_activity', refresh)
+    }
+  }, [qc])
 
   const batchM = useMutation({
     mutationFn: () => fetchReviewBatch(10),

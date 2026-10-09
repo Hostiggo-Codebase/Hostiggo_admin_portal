@@ -28,9 +28,9 @@ export async function GET() {
       console.log('FDW fetch error:', e)
     }
 
-    // FDW can be unavailable while the secondary project's API remains healthy.
-    // Keep the operational queue available during an FDW connection outage.
-    if (fdwTickets.length === 0) {
+    // Always merge the app project's tickets directly: the FDW view can be stale or down, and a ticket must show
+    // up in the queue the moment a customer sends their first message. Deduplicated by ticket_id below.
+    {
       try {
         const { data: secondaryTickets, error: secondaryError } = await secondaryClient
           .from('support_tickets')
@@ -39,7 +39,7 @@ export async function GET() {
         if (secondaryError) {
           console.error('Secondary queue fetch error:', secondaryError.message)
         } else if (secondaryTickets) {
-          fdwTickets = secondaryTickets
+          fdwTickets = [...fdwTickets, ...secondaryTickets]
         }
       } catch (e) {
         console.error('Secondary queue fetch exception:', e)
