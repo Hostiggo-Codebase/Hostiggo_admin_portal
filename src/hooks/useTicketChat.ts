@@ -54,8 +54,13 @@ export function useTicketChat(ticketId: string) {
 
     const socket = getSocket()
 
-    // Join ticket chat room on Socket.io server
-    socket.emit('join_ticket', { ticket_id: ticketId })
+    // Rooms live server-side and are lost on reconnect, so (re)join on every connect.
+    const join = () => {
+      socket.emit('join_ticket', { ticket_id: ticketId })
+      socket.emit('join_agents')
+    }
+    if (socket.connected) join()
+    socket.on('connect', join)
 
     const handleNewMessage = (msg: any) => {
       console.log('[Socket.io Admin] New message received:', msg)
@@ -79,6 +84,7 @@ export function useTicketChat(ticketId: string) {
 
     return () => {
       socket.emit('leave_ticket', { ticket_id: ticketId })
+      socket.off('connect', join)
       socket.off('new_message', handleNewMessage)
       socket.off('ticket_updated', handleTicketUpdated)
       socket.off('queue_updated', handleTicketUpdated)

@@ -30,6 +30,17 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() })
 })
 
+// The mobile app labels guests/hosts 'student'; the chat_messages CHECK
+// constraint only allows user | agent | system.
+const normalizeSenderType = (t) => (t === 'agent' || t === 'system' ? t : 'user')
+
+// Internal notes are agent-only: never fan them out to a ticket room, which
+// the guest/host app is also in. Admin UIs pick them up via /api/messages.
+const emitMessage = (ticket_id, message) => {
+  if (!message.is_internal_note) io.to(`ticket:${ticket_id}`).emit('new_message', message)
+  io.to('agents').emit('global_chat_activity', { ticket_id, message })
+}
+
 io.on('connection', (socket) => {
   console.log(`[Socket.io] Client connected: ${socket.id}`)
 
@@ -40,6 +51,9 @@ io.on('connection', (socket) => {
     socket.join(roomName)
     console.log(`[Socket.io] Socket ${socket.id} joined room ${roomName}`)
   })
+
+  // Agent dashboards subscribe to cross-ticket activity here.
+  socket.on('join_agents', () => socket.join('agents'))
 
   // Leave a ticket chat room
   socket.on('leave_ticket', ({ ticket_id }) => {
@@ -53,13 +67,14 @@ io.on('connection', (socket) => {
   // Supabase. Broadcasting separately avoids a second database insert.
   socket.on('broadcast_message', ({ ticket_id, message }) => {
     if (!ticket_id || !message) return
-    io.to(`ticket:${ticket_id}`).emit('new_message', message)
-    io.emit('global_chat_activity', { ticket_id, message })
+    emitMessage(ticket_id, message)
   })
 
   // Send & broadcast real-time chat message
   socket.on('send_message', async (data) => {
-    const { ticket_id, sender_id, sender_type, body, is_internal_note = false } = data
+    const { ticket_id, sender_id, body } = data
+    const sender_type = normalizeSenderType(data.sender_type)
+    const is_internal_note = sender_type === 'agent' && data.is_internal_note === true
     if (!ticket_id || !sender_id || !body) return
 
     console.log(`[Socket.io] New message for ticket ${ticket_id} from ${sender_type}: ${body}`)
@@ -79,24 +94,14 @@ io.on('connection', (socket) => {
         .single()
 
       if (error) {
+        // Do not broadcast an unpersisted message: it would vanish on the
+        // next fetch. Tell the sender instead.
         console.error('[Socket.io] Error inserting message into DB:', error.message)
-        // Even if DB errors out, construct temporary message object
-        const fallbackMsg = {
-          id: `tmp-${Date.now()}`,
-          ticket_id,
-          sender_id,
-          sender_type,
-          body,
-          is_internal_note,
-          created_at: new Date().toISOString(),
-        }
-        io.to(`ticket:${ticket_id}`).emit('new_message', fallbackMsg)
+        socket.emit('message_error', { ticket_id, error: error.message })
         return
       }
 
-      // 2. Broadcast new message to everyone in ticket room
-      io.to(`ticket:${ticket_id}`).emit('new_message', insertedMsg)
-      io.emit('global_chat_activity', { ticket_id, message: insertedMsg })
+      emitMessage(ticket_id, insertedMsg)
     } catch (err) {
       console.error('[Socket.io] Send message exception:', err)
     }
