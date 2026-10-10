@@ -21,7 +21,17 @@ function getMobileSocketUrl(): string {
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
     return 'http://localhost:4000'
   }
-  return 'http://localhost:4000'
+  return 'https://hostiggoadminportal-production.up.railway.app'
+}
+
+function getAdminApiUrl(): string {
+  if (process.env.EXPO_PUBLIC_ADMIN_API_URL) {
+    return process.env.EXPO_PUBLIC_ADMIN_API_URL
+  }
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return 'http://localhost:3000'
+  }
+  return 'https://hostiggoadminportal-production.up.railway.app'
 }
 
 let mobileSocket: Socket | null = null
@@ -39,11 +49,34 @@ function getMobileSocket(): Socket {
     })
 
     mobileSocket.on('connect', () => {
-      console.log('🟢 [Socket.io Mobile] Connected to Live Socket Server! ID:', mobileSocket?.id)
+      console.log('🟢 [Socket.io Mobile] Connected to Live Socket Server. Messages can arrive via Socket.io now.', {
+        id: mobileSocket?.id,
+        transport: mobileSocket?.io.engine.transport.name,
+      })
+    })
+
+    mobileSocket.io.engine.on('upgrade', (transport) => {
+      console.log('[Socket.io Mobile] Transport upgraded:', transport.name)
+    })
+
+    mobileSocket.on('disconnect', (reason) => {
+      console.warn('[Socket.io Mobile] Disconnected from Socket.io server:', reason)
+    })
+
+    mobileSocket.io.on('reconnect', (attempt) => {
+      console.log('[Socket.io Mobile] Reconnected to Socket.io server after attempt:', attempt)
     })
 
     mobileSocket.on('connect_error', (err) => {
       console.error('🔴 [Socket.io Mobile] Connection Error:', err.message)
+    })
+
+    mobileSocket.on('support_chat_ready', ({ ticket_id, ticket }) => {
+      console.log('[Socket.io Mobile] Support chat ready from Socket.io server:', { ticket_id })
+    })
+
+    mobileSocket.on('send_message_error', ({ error }) => {
+      console.error('[Socket.io Mobile] Server rejected message:', error)
     })
   }
   return mobileSocket
@@ -70,9 +103,22 @@ const CATEGORIES = [
   { id: 'ca444444-4444-4444-4444-444444444444', name: 'Refund Request' },
 ]
 
+const DEFAULT_CHAT_CATEGORY_ID = 'ca222222-2222-2222-2222-222222222222'
+const ACTIVE_CHAT_STATUSES = ['QUEUED', 'ASSIGNED', 'ACTIVE', 'WAITING_ON_USER', 'REOPENED']
+
+function normalizeUser(user: any, fallbackName = '') {
+  return {
+    ...user,
+    id: user.user_id || user.id,
+    name: user.name || user.display_name || fallbackName,
+    email: user.email,
+    phone: user.phone || '',
+  }
+}
+
 export default function DummyMobileApp() {
   const [activeUser, setActiveUser] = useState(DEMO_USERS[0])
-  const [activeTab, setActiveTab] = useState<'create' | 'tickets' | 'sync'>('create')
+  const [activeTab, setActiveTab] = useState<'create' | 'tickets' | 'sync'>('tickets')
 
   // Custom User Login Form State
   const [customUsers, setCustomUsers] = useState<any[]>([])
@@ -96,6 +142,7 @@ export default function DummyMobileApp() {
   const [messages, setMessages] = useState<any[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [loadingTickets, setLoadingTickets] = useState(false)
+  const [startingChat, setStartingChat] = useState(false)
   const [rating, setRating] = useState(5)
   const [ratingComment, setRatingComment] = useState('')
 
@@ -108,6 +155,10 @@ export default function DummyMobileApp() {
       return
     }
 
+    const email = loginEmail.trim().toLowerCase()
+    const name = loginName.trim()
+    const phone = loginPhone.trim() || null
+
     setLoggingIn(true)
     try {
       // 1. Check if user already exists in hostiggo_testing_schema.users / users view
@@ -115,7 +166,7 @@ export default function DummyMobileApp() {
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('email', loginEmail.trim())
+        .eq('email', email)
         .maybeSingle()
 
       if (!error && data) {
@@ -128,7 +179,7 @@ export default function DummyMobileApp() {
         // 1. Try to sign in first (if user already registered in auth.users)
         try {
           const { data: signInRes } = await supabase.auth.signInWithPassword({
-            email: loginEmail.trim(),
+            email,
             password: 'Password123!',
           })
           if (signInRes?.user?.id) {
@@ -142,7 +193,7 @@ export default function DummyMobileApp() {
         if (!userId) {
           try {
             const { data: signUpRes } = await supabase.auth.signUp({
-              email: loginEmail.trim(),
+              email,
               password: 'Password123!',
             })
             if (signUpRes?.user?.id) {
@@ -153,49 +204,86 @@ export default function DummyMobileApp() {
           }
         }
 
-        // 3. Prepare payload for hostiggo_testing_schema.users table
-        const insertPayload: any = {
-          email: loginEmail.trim(),
-          name: loginName.trim(),
-          phone: loginPhone.trim() || null,
-        }
         if (userId) {
-          insertPayload.user_id = userId
+          const { data: authLinkedUser } = await supabase
+            .from('users')
+            .select('*')
+            .eq('user_id', userId)
+            .maybeSingle()
+
+          if (authLinkedUser) {
+            existingUser = authLinkedUser
+          }
         }
 
-        const { data: newUser, error: insertErr } = await supabase
-          .from('users')
-          .insert(insertPayload)
-          .select()
-          .single()
+        if (!existingUser) {
+          // 3. Prepare payload for hostiggo_testing_schema.users table/view.
+          const insertPayload: any = {
+            email,
+            name,
+            phone,
+          }
+          if (userId) {
+            insertPayload.user_id = userId
+          }
 
-        if (insertErr) {
-          console.error('User insert error:', insertErr.message)
-          // Fallback retry without explicit user_id if FK constraint is dropped or auto-generated
-          const { data: retryUser, error: retryErr } = await supabase
+          const { data: newUser, error: insertErr } = await supabase
             .from('users')
-            .insert({
-              email: loginEmail.trim(),
-              name: loginName.trim(),
-              phone: loginPhone.trim() || null,
-            })
+            .insert(insertPayload)
             .select()
             .single()
 
-          if (retryErr) {
-            throw insertErr
+          if (insertErr) {
+            const { data: conflictedUser } = await supabase
+              .from('users')
+              .select('*')
+              .eq(userId ? 'user_id' : 'email', userId || email)
+              .maybeSingle()
+
+            if (conflictedUser) {
+              existingUser = conflictedUser
+            } else {
+              const { data: emailUser } = await supabase
+                .from('users')
+                .select('*')
+                .eq('email', email)
+                .maybeSingle()
+
+              if (emailUser) {
+                existingUser = emailUser
+              }
+            }
+
+            if (!existingUser) {
+              console.error('User insert error:', insertErr.message)
+              throw insertErr
+            }
+          } else {
+            existingUser = newUser
           }
-          existingUser = retryUser
-        } else {
-          existingUser = newUser
         }
+
+        if (existingUser) {
+          const existingId = existingUser.user_id || existingUser.id
+          const updatePayload: any = { name, phone }
+
+          const { data: updatedUser, error: updateErr } = await supabase
+            .from('users')
+            .update(updatePayload)
+            .eq(existingUser.user_id ? 'user_id' : 'id', existingId)
+            .select()
+            .maybeSingle()
+
+          if (!updateErr && updatedUser) {
+            existingUser = updatedUser
+          }
+        }
+      }
+
+      if (existingUser) {
+        existingUser = normalizeUser(existingUser, name)
       } else {
-        existingUser = {
-          id: existingUser.user_id || existingUser.id,
-          name: existingUser.name || existingUser.display_name || loginName.trim(),
-          email: existingUser.email,
-          phone: existingUser.phone || '',
-        }
+        throw new Error('Could not create or load user')
       }
 
       setCustomUsers((prev) => [...prev.filter((u) => u.id !== existingUser.id), existingUser])
@@ -217,9 +305,48 @@ export default function DummyMobileApp() {
     getMobileSocket()
   }, [])
 
+  useEffect(() => {
+    const socket = getMobileSocket()
+
+    const handleSupportChatReady = ({ ticket_id, ticket, message }: any) => {
+      console.log('[Socket.io Mobile] Support chat ready for UI:', { ticket_id })
+      if (ticket?.user_id && ticket.user_id !== activeUser.id) {
+        console.log('[Socket.io Mobile] Ignoring support chat for inactive user:', {
+          ticketUserId: ticket.user_id,
+          activeUserId: activeUser.id,
+        })
+        return
+      }
+      if (ticket) {
+        setSelectedTicket(ticket)
+        setTickets((prev) => {
+          const withoutCurrent = prev.filter((t) => t.ticket_id !== ticket.ticket_id)
+          return [ticket, ...withoutCurrent]
+        })
+      }
+      if (message) {
+        setMessages((prev) => {
+          if (prev.some((msg) => msg.id === message.id)) return prev
+          return [...prev, message]
+        })
+      }
+      if (ticket_id) {
+        fetchTicketMessages(ticket_id)
+      }
+    }
+
+    socket.on('support_chat_ready', handleSupportChatReady)
+    return () => {
+      socket.off('support_chat_ready', handleSupportChatReady)
+    }
+  }, [activeUser])
+
   // Fetch Tickets for active user
   useEffect(() => {
-    fetchUserTickets()
+    setSelectedTicket(null)
+    setMessages([])
+    setTickets([])
+    ensureDefaultChatTicket(activeUser)
   }, [activeUser])
 
 
@@ -230,34 +357,56 @@ export default function DummyMobileApp() {
     const ticketId = selectedTicket.ticket_id
     fetchTicketMessages(ticketId)
 
-    const socket = getMobileSocket()
-    socket.emit('join_ticket', { ticket_id: ticketId })
-
     const handleNewMessage = (msg: any) => {
-      console.log('[Socket.io Mobile] New message received:', msg)
+      if (msg?.ticket_id && msg.ticket_id !== ticketId) return
+      console.log('[Socket.io Mobile] Message received from Socket.io ticket room:', {
+        ticketId,
+        messageId: msg?.id,
+        senderType: msg?.sender_type,
+        transport: socket.io.engine.transport.name,
+      })
       fetchTicketMessages(ticketId)
     }
 
+    const socket = getMobileSocket()
+    const joinTicket = () => {
+      console.log('[Socket.io Mobile] Joining ticket room on Socket.io server:', {
+        ticketId,
+        connected: socket.connected,
+        transport: socket.io.engine.transport.name,
+      })
+      socket.emit('join_ticket', { ticket_id: ticketId })
+    }
+
     socket.on('new_message', handleNewMessage)
+    socket.on('connect', joinTicket)
+    if (socket.connected) {
+      joinTicket()
+    } else {
+      socket.connect()
+    }
 
     const pollInterval = setInterval(() => {
+      console.log('[Polling Mobile] Refreshing messages fallback:', ticketId)
       fetchTicketMessages(ticketId)
     }, 1500)
 
     return () => {
+      console.log('[Socket.io Mobile] Leaving ticket room on Socket.io server:', ticketId)
       socket.emit('leave_ticket', { ticket_id: ticketId })
       socket.off('new_message', handleNewMessage)
+      socket.off('connect', joinTicket)
       clearInterval(pollInterval)
     }
   }, [selectedTicket])
 
-  const fetchUserTickets = async () => {
+  const fetchUserTickets = async (user = activeUser) => {
     setLoadingTickets(true)
     try {
       const { data, error } = await supabase
         .from('support_tickets')
         .select('*')
-        .eq('user_id', activeUser.id)
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
       if (error) {
@@ -274,6 +423,108 @@ export default function DummyMobileApp() {
     } finally {
       setLoadingTickets(false)
     }
+  }
+
+  const ensureDefaultChatTicket = async (user = activeUser) => {
+    setStartingChat(true)
+    try {
+      const response = await fetch(`${getAdminApiUrl()}/api/mobile/start-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+        }),
+      })
+
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to start chat')
+      }
+
+      const ticket = result.ticket
+      setSelectedTicket(ticket)
+      setTickets((prev) => {
+        const withoutCurrent = prev.filter((t) => t.ticket_id !== ticket.ticket_id)
+        return [ticket, ...withoutCurrent]
+      })
+      fetchTicketMessages(ticket.ticket_id)
+      return ticket
+    } catch (err) {
+      console.log('Start chat API fallback:', err)
+      return ensureDefaultChatTicketFromSupabase(user)
+    } finally {
+      setStartingChat(false)
+    }
+  }
+
+  const ensureDefaultChatTicketFromSupabase = async (user = activeUser) => {
+    let appUser = user
+
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', user.email)
+      .maybeSingle()
+
+    if (existingUser) {
+      appUser = normalizeUser(existingUser, user.name)
+    } else {
+      const { data: insertedUser, error: userInsertError } = await supabase
+        .from('users')
+        .insert({
+          user_id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone || null,
+        })
+        .select()
+        .single()
+
+      if (userInsertError) throw userInsertError
+      appUser = normalizeUser(insertedUser, user.name)
+    }
+
+    const { data: activeTickets, error: activeTicketError } = await supabase
+      .from('support_tickets')
+      .select('*')
+      .eq('user_id', appUser.id)
+      .in('status', ACTIVE_CHAT_STATUSES)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (activeTicketError) throw activeTicketError
+
+    const activeTicket = activeTickets?.[0]
+    if (activeTicket) {
+      setSelectedTicket(activeTicket)
+      setTickets([activeTicket])
+      fetchTicketMessages(activeTicket.ticket_id)
+      return activeTicket
+    }
+
+    const { data: newTicket, error: ticketError } = await supabase
+      .from('support_tickets')
+      .insert({
+        user_id: appUser.id,
+        category_id: DEFAULT_CHAT_CATEGORY_ID,
+        subject: 'App Support Chat',
+        description: 'Support chat started from the mobile app.',
+        priority_label: 'General',
+        priority: 3,
+        status: 'QUEUED',
+      })
+      .select()
+      .single()
+
+    if (ticketError) throw ticketError
+
+    setSelectedTicket(newTicket)
+    setTickets([newTicket])
+    fetchTicketMessages(newTicket.ticket_id)
+    return newTicket
   }
 
   const fetchTicketMessages = async (ticketId: string) => {
@@ -364,35 +615,34 @@ export default function DummyMobileApp() {
   }
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !selectedTicket) return
+    if (!newMessage.trim()) return
 
     const messageText = newMessage.trim()
     setNewMessage('')
 
     try {
-      // Persist first. A temporary Socket.io outage must not discard a user's message.
-      const { data: message, error } = await supabase
-        .from('chat_messages')
-        .insert({
-          ticket_id: selectedTicket.ticket_id,
-          sender_id: activeUser.id,
-          sender_type: 'user',
-          body: messageText,
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-
-      // The socket server only broadcasts this already-persisted message, so it
-      // cannot create a duplicate row.
       const socket = getMobileSocket()
-      socket.emit('broadcast_message', {
-        ticket_id: selectedTicket.ticket_id,
-        message,
+      if (!socket.connected) {
+        console.warn('[Socket.io Mobile] Socket was disconnected while sending. Reconnecting before send_message.')
+        socket.connect()
+      }
+
+      console.log('[Socket.io Mobile] Sending user message to Socket.io server:', {
+        ticketId: selectedTicket?.ticket_id || null,
+        userId: activeUser.id,
+        connected: socket.connected,
+        transport: socket.io.engine.transport.name,
       })
 
-      fetchTicketMessages(selectedTicket.ticket_id)
+      socket.emit('send_message', {
+        ticket_id: selectedTicket?.ticket_id,
+        sender_id: activeUser.id,
+        sender_type: 'user',
+        body: messageText,
+        email: activeUser.email,
+        name: activeUser.name,
+        phone: activeUser.phone,
+      })
     } catch (err: any) {
       alertError('Failed to send message: ' + err.message)
     }
@@ -506,32 +756,16 @@ export default function DummyMobileApp() {
         )}
       </View>
 
-      {/* Tabs Bar */}
+      {/* Direct Support Chat Header */}
       <View style={styles.tabsBar}>
         <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'create' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('create')}
-        >
-          <Text style={[styles.tabText, activeTab === 'create' && styles.tabTextActive]}>➕ Raise Complaint</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'tickets' && styles.tabButtonActive]}
+          style={[styles.tabButton, styles.tabButtonActive]}
           onPress={() => {
             setActiveTab('tickets')
-            fetchUserTickets()
+            ensureDefaultChatTicket()
           }}
         >
-          <Text style={[styles.tabText, activeTab === 'tickets' && styles.tabTextActive]}>
-            💬 My Tickets ({tickets.length})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'sync' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('sync')}
-        >
-          <Text style={[styles.tabText, activeTab === 'sync' && styles.tabTextActive]}>⚡ Data Sync Test</Text>
+          <Text style={[styles.tabText, styles.tabTextActive]}>💬 Support Chat</Text>
         </TouchableOpacity>
       </View>
 
@@ -612,44 +846,14 @@ export default function DummyMobileApp() {
       {/* TAB 2: MY TICKETS & CHAT */}
       {activeTab === 'tickets' && (
         <View style={styles.splitChatView}>
-          {/* Ticket List Column */}
-          <View style={styles.ticketListCol}>
-            <Text style={styles.colHeader}>Your Tickets</Text>
-            {loadingTickets ? (
-              <ActivityIndicator style={{ marginTop: 20 }} />
-            ) : tickets.length === 0 ? (
-              <Text style={styles.emptyText}>No tickets found. Raise one from tab 1!</Text>
-            ) : (
-              <ScrollView>
-                {tickets.map((t) => (
-                  <TouchableOpacity
-                    key={t.ticket_id || t.id}
-                    style={[
-                      styles.ticketItem,
-                      selectedTicket?.ticket_id === t.ticket_id && styles.ticketItemActive,
-                    ]}
-                    onPress={() => setSelectedTicket(t)}
-                  >
-                    <Text style={styles.ticketNumber}>{t.ticket_number || 'HG-NEW'}</Text>
-                    <Text style={styles.ticketSubject} numberOfLines={1}>
-                      {t.subject}
-                    </Text>
-                    <View style={styles.statusBadge}>
-                      <Text style={styles.statusText}>{t.status || 'QUEUED'}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-          </View>
-
-          {/* Chat Thread Column */}
           <View style={styles.chatThreadCol}>
             {selectedTicket ? (
               <>
                 <View style={styles.chatHeader}>
-                  <Text style={styles.chatHeaderTitle}>{selectedTicket.ticket_number || 'Ticket Chat'}</Text>
-                  <Text style={styles.chatHeaderSub}>{selectedTicket.subject}</Text>
+                  <Text style={styles.chatHeaderTitle}>Support Chat</Text>
+                  <Text style={styles.chatHeaderSub}>
+                    {selectedTicket.ticket_number || 'Connecting to support...'}
+                  </Text>
                 </View>
 
                 {/* Messages List */}
@@ -707,7 +911,19 @@ export default function DummyMobileApp() {
               </>
             ) : (
               <View style={styles.emptyChatCenter}>
-                <Text style={styles.emptyText}>Select a ticket to start chatting</Text>
+                {startingChat ? (
+                  <>
+                    <ActivityIndicator style={{ marginBottom: 10 }} />
+                    <Text style={styles.emptyText}>Starting support chat...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.emptyText}>Support chat is ready.</Text>
+                    <TouchableOpacity style={styles.primaryButton} onPress={() => ensureDefaultChatTicket(activeUser)}>
+                      <Text style={styles.primaryButtonText}>Open Chat</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
             )}
           </View>

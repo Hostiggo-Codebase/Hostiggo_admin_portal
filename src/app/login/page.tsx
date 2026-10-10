@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -8,8 +8,18 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [authError, setAuthError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+
+  useEffect(() => {
+    const pageError = new URLSearchParams(window.location.search).get('error')
+    if (pageError === 'unauthorized') {
+      setAuthError('You are not an allowed admin or agent. Please contact the Hostiggo team for access.')
+    } else if (pageError) {
+      setAuthError('Sign in failed. Please try again.')
+    }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -88,9 +98,9 @@ export default function LoginPage() {
               />
             </div>
             
-            {error && (
+            {(error || authError) && (
               <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3">
-                <p className="text-sm text-red-400 text-center">{error}</p>
+                <p className="text-sm text-red-400 text-center">{error || authError}</p>
               </div>
             )}
             

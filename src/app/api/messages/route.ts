@@ -29,18 +29,18 @@ export async function GET(request: Request) {
       console.log('FDW msg error:', e)
     }
 
-    // 2. Try Secondary Client direct fetch fallback
-    if (fdwMsgs.length === 0) {
-      try {
-        const { data: secData } = await secondaryClient
-          .from('chat_messages')
-          .select('*')
-          .eq('ticket_id', ticketId)
-          .order('created_at', { ascending: true })
-        if (secData) fdwMsgs = secData
-      } catch (e) {
-        console.log('Secondary msg fetch error:', e)
-      }
+    // 2. Always read the secondary project directly. FDW can lag behind the
+    // write path, so using it as the only source makes fresh admin messages
+    // disappear locally even though Socket.io broadcasts them to the mobile app.
+    try {
+      const { data: secData } = await secondaryClient
+        .from('chat_messages')
+        .select('*')
+        .eq('ticket_id', ticketId)
+        .order('created_at', { ascending: true })
+      if (secData) fdwMsgs = [...fdwMsgs, ...secData]
+    } catch (e) {
+      console.log('Secondary msg fetch error:', e)
     }
 
     // 3. Try local table

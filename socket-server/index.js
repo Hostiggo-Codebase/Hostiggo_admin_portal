@@ -26,6 +26,136 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   global: { WebSocket: ws },
 })
 
+const DEFAULT_CATEGORY_ID = 'ca222222-2222-2222-2222-222222222222'
+const ACTIVE_STATUSES = ['QUEUED', 'ASSIGNED', 'ACTIVE', 'WAITING_ON_USER', 'REOPENED']
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function normalizeUserPayload(data = {}) {
+  const email = String(data.email || data.user_email || '').trim().toLowerCase()
+  const name = String(data.name || data.display_name || data.user_name || 'Hostiggo User').trim()
+  const phone = data.phone ? String(data.phone).trim() : null
+  const requestedUserId =
+    typeof data.user_id === 'string' && UUID_RE.test(data.user_id)
+      ? data.user_id
+      : typeof data.sender_id === 'string' && UUID_RE.test(data.sender_id)
+        ? data.sender_id
+        : null
+
+  return { email, name, phone, requestedUserId }
+}
+
+async function findOrCreateMobileUser(data = {}) {
+  const { email, name, phone, requestedUserId } = normalizeUserPayload(data)
+
+  if (!email && !requestedUserId) {
+    throw new Error('email or user_id is required when ticket_id is missing')
+  }
+
+  const usersTable = supabase.schema('hostiggo_testing_schema').from('users')
+
+  let user = null
+  if (requestedUserId) {
+    const { data: userById, error } = await usersTable
+      .select('*')
+      .eq('user_id', requestedUserId)
+      .maybeSingle()
+    if (error) throw error
+    user = userById
+  }
+
+  if (!user && email) {
+    const { data: userByEmail, error } = await usersTable
+      .select('*')
+      .eq('email', email)
+      .maybeSingle()
+    if (error) throw error
+    user = userByEmail
+  }
+
+  if (!user) {
+    const insertPayload = {
+      name,
+      email: email || `${requestedUserId}@hostiggo.local`,
+      phone,
+    }
+    if (requestedUserId) insertPayload.user_id = requestedUserId
+
+    const { data: insertedUser, error } = await usersTable
+      .insert(insertPayload)
+      .select()
+      .single()
+
+    if (error) throw error
+    user = insertedUser
+  } else {
+    const updatePayload = { name, phone }
+    if (email) updatePayload.email = email
+
+    const { data: updatedUser } = await usersTable
+      .update(updatePayload)
+      .eq('user_id', user.user_id)
+      .select()
+      .maybeSingle()
+    if (updatedUser) user = updatedUser
+  }
+
+  return user
+}
+
+async function findOrCreateMobileTicket(data = {}) {
+  const suppliedTicketId = data.ticket_id
+  const placeholderTicketId =
+    suppliedTicketId === 'support' ||
+    suppliedTicketId === 'x' ||
+    suppliedTicketId === '00000000-0000-0000-0000-000000000000' ||
+    suppliedTicketId === data.sender_id ||
+    suppliedTicketId === data.user_id
+
+  if (suppliedTicketId && !placeholderTicketId) {
+    const { data: existingTicket, error } = await supabase
+      .from('support_tickets')
+      .select('*')
+      .eq('ticket_id', suppliedTicketId)
+      .maybeSingle()
+
+    if (error) throw error
+    if (existingTicket) return { ...existingTicket, created: false }
+  }
+
+  const user = await findOrCreateMobileUser(data)
+
+  const { data: activeTicket, error: fetchError } = await supabase
+    .from('support_tickets')
+    .select('*')
+    .eq('user_id', user.user_id)
+    .in('status', ACTIVE_STATUSES)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (fetchError) throw fetchError
+  if (activeTicket) {
+    return { ...activeTicket, created: false }
+  }
+
+  const { data: newTicket, error: createError } = await supabase
+    .from('support_tickets')
+    .insert({
+      user_id: user.user_id,
+      category_id: data.category_id || DEFAULT_CATEGORY_ID,
+      subject: data.subject || 'App Support Chat',
+      description: data.description || data.body || 'Support chat started from the mobile app.',
+      priority_label: data.priority_label || 'General',
+      priority: data.priority || 3,
+      status: 'QUEUED',
+    })
+    .select()
+    .single()
+
+  if (createError) throw createError
+  return { ...newTicket, created: true }
+}
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() })
 })
@@ -74,14 +204,24 @@ io.on('connection', (socket) => {
 
   // Send & broadcast real-time chat message
   socket.on('send_message', async (data) => {
-    const { ticket_id, sender_id, body } = data
-    const sender_type = normalizeSenderType(data.sender_type)
-    const is_internal_note = sender_type === 'agent' && data.is_internal_note === true
-    if (!ticket_id || !sender_id || !body) return
+    const { body } = data
+    if (!body) return
 
-    console.log(`[Socket.io] New message for ticket ${ticket_id} from ${sender_type}: ${body}`)
+    console.log(`[Socket.io] Incoming message from ${data.sender_type || 'user'}: ${body}`)
 
     try {
+      const ticket = await findOrCreateMobileTicket(data)
+      const ticket_id = ticket.ticket_id
+      const sender_id = data.sender_id || data.user_id || ticket.user_id
+      const sender_type = normalizeSenderType(data.sender_type)
+      const is_internal_note = sender_type === 'agent' && data.is_internal_note === true
+
+      if (!ticket_id || !sender_id) {
+        throw new Error('Could not resolve ticket_id or sender_id for message')
+      }
+
+      socket.join(`ticket:${ticket_id}`)
+
       // 1. Insert message into Supabase DB chat_messages table
       const { data: insertedMsg, error } = await supabase
         .from('chat_messages')
@@ -103,9 +243,12 @@ io.on('connection', (socket) => {
         return
       }
 
+      socket.emit('support_chat_ready', { ticket_id, ticket, message: insertedMsg })
       emitMessage(ticket_id, insertedMsg)
+      io.emit('queue_updated', { ticket_id, status: ticket.status || 'QUEUED' })
     } catch (err) {
       console.error('[Socket.io] Send message exception:', err)
+      socket.emit('send_message_error', { error: err.message || 'Message send failed' })
     }
   })
 

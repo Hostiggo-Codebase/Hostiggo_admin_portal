@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { getAdminAccess } from '@/lib/auth/admin-access'
 
 export default async function Home() {
   const supabase = await createClient()
@@ -7,7 +8,8 @@ export default async function Home() {
 
   if (!user) redirect('/login')
 
-  const role = user.app_metadata?.role
-  if (role === 'agent' || role === 'super_admin') redirect('/admin/queue')
-  redirect('/support')
+  const admin = await getAdminAccess(supabase, user.id)
+  if (admin) redirect('/admin/queue')
+
+  redirect('/login?error=unauthorized')
 }

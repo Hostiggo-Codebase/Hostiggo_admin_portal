@@ -35,9 +35,22 @@ export function ChatPane({ ticketId, currentUserId, status, isAgent, showInterna
     mutationFn: () => sendMessage({ ticketId, body: body.trim(), isInternalNote: isInternal }),
     onSuccess: (result) => {
       setBody('')
-      queryClient.invalidateQueries({ queryKey: ['messages', ticketId] })
       if (result.message) {
-        getSocket().emit('broadcast_message', { ticket_id: ticketId, message: result.message })
+        queryClient.setQueryData(['messages', ticketId], (old: unknown) => {
+          const messages = Array.isArray(old) ? old : []
+          if (messages.some((msg: any) => msg.id === result.message?.id)) return messages
+          return [...messages, result.message]
+        })
+      }
+      if (result.message) {
+        const socket = getSocket()
+        console.log('[Socket.io Admin] Broadcasting persisted agent message to Socket.io server:', {
+          ticketId,
+          messageId: result.message.id,
+          connected: socket.connected,
+          transport: socket.io.engine.transport.name,
+        })
+        socket.emit('broadcast_message', { ticket_id: ticketId, message: result.message })
       }
     },
     onError: (err: Error) => {

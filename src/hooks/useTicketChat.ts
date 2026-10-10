@@ -27,7 +27,25 @@ export function getSocket(): Socket {
     })
 
     socketInstance.on('connect', () => {
-      console.log('🟢 [Socket.io Admin] Connected to Live Socket Server! ID:', socketInstance?.id)
+      console.log(
+        '🟢 [Socket.io Admin] Connected to Live Socket Server. Messages can arrive via Socket.io now.',
+        {
+          id: socketInstance?.id,
+          transport: socketInstance?.io.engine.transport.name,
+        }
+      )
+    })
+
+    socketInstance.io.engine.on('upgrade', (transport) => {
+      console.log('[Socket.io Admin] Transport upgraded:', transport.name)
+    })
+
+    socketInstance.on('disconnect', (reason) => {
+      console.warn('[Socket.io Admin] Disconnected from Socket.io server:', reason)
+    })
+
+    socketInstance.io.on('reconnect', (attempt) => {
+      console.log('[Socket.io Admin] Reconnected to Socket.io server after attempt:', attempt)
     })
 
     socketInstance.on('connect_error', (err) => {
@@ -52,8 +70,22 @@ export function useTicketChat(ticketId: string) {
 
     const socket = getSocket()
 
+    const appendSocketMessage = (message: any) => {
+      if (!message || message.ticket_id !== ticketId) return
+      queryClient.setQueryData(['messages', ticketId], (old: unknown) => {
+        const messages = Array.isArray(old) ? old : []
+        if (messages.some((msg: any) => msg.id === message.id)) return messages
+        return [...messages, message]
+      })
+    }
+
     // Rooms live server-side and are lost on reconnect, so (re)join on every connect.
     const join = () => {
+      console.log('[Socket.io Admin] Joining ticket/agents rooms on Socket.io server:', {
+        ticketId,
+        connected: socket.connected,
+        transport: socket.io.engine.transport.name,
+      })
       socket.emit('join_ticket', { ticket_id: ticketId })
       socket.emit('join_agents')
     }
@@ -61,8 +93,25 @@ export function useTicketChat(ticketId: string) {
     socket.on('connect', join)
 
     const handleNewMessage = (msg: any) => {
-      console.log('[Socket.io Admin] New message received:', msg)
-      queryClient.invalidateQueries({ queryKey: ['messages', ticketId] })
+      if (msg?.ticket_id && msg.ticket_id !== ticketId) return
+      console.log('[Socket.io Admin] Message received from Socket.io ticket room:', {
+        ticketId,
+        messageId: msg?.id,
+        senderType: msg?.sender_type,
+        transport: socket.io.engine.transport.name,
+      })
+      appendSocketMessage(msg)
+    }
+
+    const handleGlobalChatActivity = (event: any) => {
+      if (event?.ticket_id !== ticketId) return
+      console.log('[Socket.io Admin] Message received from Socket.io global activity:', {
+        ticketId,
+        messageId: event?.message?.id,
+        senderType: event?.message?.sender_type,
+        transport: socket.io.engine.transport.name,
+      })
+      appendSocketMessage(event?.message)
     }
 
     const handleTicketUpdated = (data: any) => {
@@ -72,22 +121,21 @@ export function useTicketChat(ticketId: string) {
     }
 
     socket.on('new_message', handleNewMessage)
+    socket.on('global_chat_activity', handleGlobalChatActivity)
     socket.on('ticket_updated', handleTicketUpdated)
     socket.on('queue_updated', handleTicketUpdated)
-
-    // Fallback Poll every 1.5 seconds while chat view is active
-    const pollInterval = setInterval(() => {
-      queryClient.invalidateQueries({ queryKey: ['messages', ticketId] })
-    }, 1500)
+    if (!socket.connected) {
+      socket.connect()
+    }
 
     return () => {
+      console.log('[Socket.io Admin] Leaving ticket room on Socket.io server:', ticketId)
       socket.emit('leave_ticket', { ticket_id: ticketId })
       socket.off('connect', join)
       socket.off('new_message', handleNewMessage)
+      socket.off('global_chat_activity', handleGlobalChatActivity)
       socket.off('ticket_updated', handleTicketUpdated)
       socket.off('queue_updated', handleTicketUpdated)
-      clearInterval(pollInterval)
     }
   }, [ticketId, queryClient])
 }
-

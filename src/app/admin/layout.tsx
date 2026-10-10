@@ -1,15 +1,17 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { getAdminAccess } from '@/lib/auth/admin-access'
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const role = user.app_metadata?.role
-  if (role !== 'agent' && role !== 'super_admin') redirect('/')
+  const admin = await getAdminAccess(supabase, user.id)
+  if (!admin) redirect('/login?error=unauthorized')
 
+  const role = admin.role
   const isSA = role === 'super_admin'
 
   return (
