@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { Database } from '@/types/database'
-import { getAdminAccess } from '@/lib/auth/admin-access'
+import { getOrProvisionAdminAccess } from '@/lib/auth/admin-access'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -41,7 +41,7 @@ export async function updateSession(request: NextRequest) {
     if (!user) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
-    const admin = await getAdminAccess(supabase, user.id)
+    const admin = await getOrProvisionAdminAccess(supabase, user)
     if (!admin) {
       return NextResponse.redirect(new URL('/login?error=unauthorized', request.url))
     }
