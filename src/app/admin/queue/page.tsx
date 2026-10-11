@@ -20,10 +20,11 @@ export default function QueuePage() {
   const [filterPriority, setFilterPriority] = useState<PriorityLabel | ''>('')
   const qc = useQueryClient()
 
-  const { data: tickets = [], isLoading } = useQuery({
+  const { data: tickets = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['queue'],
     queryFn: getQueueTickets,
-    refetchInterval: false,
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true,
     refetchOnMount: 'always',
     refetchOnReconnect: 'always',
     refetchOnWindowFocus: true,
@@ -36,8 +37,7 @@ export default function QueuePage() {
     const join = () => socket.emit('join_agents')
     const refresh = () => {
       console.log('[Socket.io Admin] Queue event received, refreshing queue')
-      qc.invalidateQueries({ queryKey: ['queue'] })
-      qc.refetchQueries({ queryKey: ['queue'], type: 'active' })
+      refetch()
     }
     if (socket.connected) join()
     socket.on('connect', join)
@@ -50,7 +50,7 @@ export default function QueuePage() {
       socket.off('queue_updated', refresh)
       socket.off('global_chat_activity', refresh)
     }
-  }, [qc])
+  }, [refetch])
 
   const batchM = useMutation({
     mutationFn: () => fetchReviewBatch(10),
@@ -109,10 +109,10 @@ export default function QueuePage() {
         </select>
 
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ['queue'] })}
+          onClick={() => refetch()}
           className="text-xs text-gray-500 hover:text-gray-900 font-medium px-2 py-1.5"
         >
-          Refresh
+          {isFetching ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 

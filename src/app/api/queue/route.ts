@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
+export const fetchCache = 'force-no-store'
 
 export async function GET() {
   try {
@@ -82,8 +83,20 @@ export async function GET() {
     const combined = Array.from(combinedMap.values())
     combined.sort((a, b) => (a.priority ?? 3) - (b.priority ?? 3))
 
-    return NextResponse.json(combined)
+    return NextResponse.json(combined, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+      },
+    })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json(
+      { error: error.message },
+      {
+        status: 500,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        },
+      }
+    )
   }
 }

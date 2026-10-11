@@ -150,7 +150,7 @@ export async function sendMessage(params: SendMessageParams): Promise<SentMessag
 
 export async function getQueueTickets(): Promise<TicketListRow[]> {
   try {
-    const res = await fetch('/api/queue', { cache: 'no-store' })
+    const res = await fetch(`/api/queue?t=${Date.now()}`, { cache: 'no-store' })
     if (res.ok) {
       const data = await res.json()
       if (Array.isArray(data)) {
