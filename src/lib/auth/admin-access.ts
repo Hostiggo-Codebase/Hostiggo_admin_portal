@@ -48,6 +48,10 @@ function getDisplayName(user: User): string {
   return name.trim() || user.email || 'Hostiggo Admin'
 }
 
+function getAppRole(role: AdminAccess['role']): string {
+  return role === 'super_admin' ? 'super_admin' : 'agent'
+}
+
 export async function getAdminAccess(
   supabase: {
     from: (table: 'admin_users') => {
@@ -90,34 +94,59 @@ export async function getOrProvisionAdminAccess(
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!supabaseUrl || !serviceRoleKey) return null
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error('Admin provisioning skipped: SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_URL is missing')
+    return null
+  }
 
   const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false },
   })
 
   const dbRole = provisionedRole === 'super_admin' ? 'SUPER_ADMIN' : 'ADMIN'
-  const payload = {
+  const basePayload = {
     admin_id: user.id,
     display_name: getDisplayName(user),
     role: dbRole,
-    email: user.email,
     agent_status: 'ONLINE',
     accepting_new_chats: true,
   }
+  const payload = {
+    ...basePayload,
+    email: user.email,
+  }
 
-  const { error } = await serviceClient
+  let { error } = await serviceClient
     .from('admin_users')
     .upsert(payload, { onConflict: 'admin_id' })
 
   if (error) {
-    console.error('Failed to provision allowed admin:', error.message)
+    console.error('Failed to provision admin with email column, retrying without email:', error.message)
+    const retry = await serviceClient
+      .from('admin_users')
+      .upsert(basePayload, { onConflict: 'admin_id' })
+    error = retry.error
+  }
+
+  if (error) {
+    console.error('Failed to provision admin:', error.message)
     return null
+  }
+
+  const { error: metadataError } = await serviceClient.auth.admin.updateUserById(user.id, {
+    app_metadata: {
+      ...user.app_metadata,
+      role: getAppRole(provisionedRole),
+    },
+  })
+
+  if (metadataError) {
+    console.error('Failed to sync admin role metadata:', metadataError.message)
   }
 
   return {
     adminId: user.id,
     role: provisionedRole,
-    displayName: payload.display_name,
+    displayName: basePayload.display_name,
   }
 }
