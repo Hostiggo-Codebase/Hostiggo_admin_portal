@@ -9,7 +9,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!user) redirect('/login')
 
   const admin = await getOrProvisionAdminAccess(supabase, user)
-  if (!admin) redirect('/login?error=unauthorized')
+  if (!admin) redirect('/login')
 
   const role = admin.role
   const isSA = role === 'super_admin'

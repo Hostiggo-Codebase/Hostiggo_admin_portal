@@ -11,5 +11,5 @@ export default async function Home() {
   const admin = await getOrProvisionAdminAccess(supabase, user)
   if (admin) redirect('/admin/queue')
 
-  redirect('/login?error=unauthorized')
+  redirect('/login')
 }

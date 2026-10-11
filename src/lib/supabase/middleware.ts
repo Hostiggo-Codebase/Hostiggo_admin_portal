@@ -43,7 +43,7 @@ export async function updateSession(request: NextRequest) {
     }
     const admin = await getOrProvisionAdminAccess(supabase, user)
     if (!admin) {
-      return NextResponse.redirect(new URL('/login?error=unauthorized', request.url))
+      return NextResponse.redirect(new URL('/login', request.url))
     }
   }
 
