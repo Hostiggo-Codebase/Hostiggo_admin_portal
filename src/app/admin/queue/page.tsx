@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getQueueTickets, fetchReviewBatch } from '@/lib/services/ticketService'
@@ -18,18 +18,58 @@ export default function QueuePage() {
   const router = useRouter()
   const [filterStatus, setFilterStatus] = useState<TicketStatus | ''>('')
   const [filterPriority, setFilterPriority] = useState<PriorityLabel | ''>('')
+  const [liveRefreshing, setLiveRefreshing] = useState(false)
   const qc = useQueryClient()
 
-  const { data: tickets = [], isLoading, isFetching, refetch } = useQuery({
+  const { data: tickets = [], isLoading, isFetching } = useQuery({
     queryKey: ['queue'],
     queryFn: getQueueTickets,
-    refetchInterval: 2_000,
-    refetchIntervalInBackground: true,
+    refetchInterval: false,
     refetchOnMount: 'always',
     refetchOnReconnect: 'always',
     refetchOnWindowFocus: true,
     staleTime: 0,
   })
+
+  const loadQueueNow = useCallback(async () => {
+    setLiveRefreshing(true)
+    try {
+      const freshTickets = await getQueueTickets()
+      qc.setQueryData(['queue'], freshTickets)
+      console.log('[Admin Queue] Live queue refreshed:', {
+        total: freshTickets.length,
+        queued: freshTickets.filter((ticket) => ticket.status === 'QUEUED').length,
+      })
+    } catch (error) {
+      console.error('[Admin Queue] Live queue refresh failed:', error)
+    } finally {
+      setLiveRefreshing(false)
+    }
+  }, [qc])
+
+  useEffect(() => {
+    void loadQueueNow()
+
+    const intervalId = window.setInterval(() => {
+      void loadQueueNow()
+    }, 2_000)
+
+    const handleFocus = () => {
+      void loadQueueNow()
+    }
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void loadQueueNow()
+    }
+
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [loadQueueNow])
 
   // Live: the socket server tells agents when a customer writes (new ticket or new message).
   useEffect(() => {
@@ -37,7 +77,7 @@ export default function QueuePage() {
     const join = () => socket.emit('join_agents')
     const refresh = () => {
       console.log('[Socket.io Admin] Queue event received, refreshing queue')
-      refetch()
+      void loadQueueNow()
     }
     if (socket.connected) join()
     socket.on('connect', join)
@@ -50,7 +90,7 @@ export default function QueuePage() {
       socket.off('queue_updated', refresh)
       socket.off('global_chat_activity', refresh)
     }
-  }, [refetch])
+  }, [loadQueueNow])
 
   const batchM = useMutation({
     mutationFn: () => fetchReviewBatch(10),
@@ -109,10 +149,10 @@ export default function QueuePage() {
         </select>
 
         <button
-          onClick={() => refetch()}
+          onClick={() => void loadQueueNow()}
           className="text-xs text-gray-500 hover:text-gray-900 font-medium px-2 py-1.5"
         >
-          {isFetching ? 'Refreshing…' : 'Refresh'}
+          {isFetching || liveRefreshing ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 
