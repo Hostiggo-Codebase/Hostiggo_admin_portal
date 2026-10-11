@@ -15,7 +15,7 @@ export default function LoginPage() {
   useEffect(() => {
     const pageError = new URLSearchParams(window.location.search).get('error')
     if (pageError === 'unauthorized') {
-      setAuthError('You are not an allowed admin or agent. Please contact the Hostiggo team for access.')
+      setAuthError('Admin sign-in could not be completed. Please contact the Hostiggo team.')
     } else if (pageError) {
       setAuthError('Sign in failed. Please try again.')
     }

@@ -23,20 +23,30 @@ export default function QueuePage() {
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ['queue'],
     queryFn: getQueueTickets,
-    refetchInterval: 5_000,
+    refetchInterval: false,
+    refetchOnMount: 'always',
+    refetchOnReconnect: 'always',
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   })
 
   // Live: the socket server tells agents when a customer writes (new ticket or new message).
   useEffect(() => {
     const socket = getSocket()
     const join = () => socket.emit('join_agents')
-    const refresh = () => qc.invalidateQueries({ queryKey: ['queue'] })
+    const refresh = () => {
+      console.log('[Socket.io Admin] Queue event received, refreshing queue')
+      qc.invalidateQueries({ queryKey: ['queue'] })
+      qc.refetchQueries({ queryKey: ['queue'], type: 'active' })
+    }
     if (socket.connected) join()
     socket.on('connect', join)
+    socket.io.on('reconnect', refresh)
     socket.on('queue_updated', refresh)
     socket.on('global_chat_activity', refresh)
     return () => {
       socket.off('connect', join)
+      socket.io.off('reconnect', refresh)
       socket.off('queue_updated', refresh)
       socket.off('global_chat_activity', refresh)
     }

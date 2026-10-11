@@ -27,19 +27,13 @@ function parseEmailList(value?: string): string[] {
     .filter(Boolean)
 }
 
-function getAllowedRole(email?: string | null): AdminAccess['role'] | null {
+function getProvisionedRole(email?: string | null): AdminAccess['role'] | null {
   const normalizedEmail = email?.trim().toLowerCase()
   if (!normalizedEmail) return null
 
   const superAdminEmails = parseEmailList(process.env.ADMIN_SUPER_ADMIN_EMAILS)
-  const agentEmails = [
-    ...parseEmailList(process.env.ADMIN_AGENT_EMAILS),
-    ...parseEmailList(process.env.ADMIN_ALLOWLIST_EMAILS),
-  ]
-
   if (superAdminEmails.includes(normalizedEmail)) return 'super_admin'
-  if (agentEmails.includes(normalizedEmail)) return 'agent'
-  return null
+  return 'agent'
 }
 
 function getDisplayName(user: User): string {
@@ -91,8 +85,8 @@ export async function getOrProvisionAdminAccess(
   const existingAdmin = await getAdminAccess(supabase, user.id)
   if (existingAdmin) return existingAdmin
 
-  const allowedRole = getAllowedRole(user.email)
-  if (!allowedRole) return null
+  const provisionedRole = getProvisionedRole(user.email)
+  if (!provisionedRole) return null
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -102,7 +96,7 @@ export async function getOrProvisionAdminAccess(
     auth: { persistSession: false },
   })
 
-  const dbRole = allowedRole === 'super_admin' ? 'SUPER_ADMIN' : 'ADMIN'
+  const dbRole = provisionedRole === 'super_admin' ? 'SUPER_ADMIN' : 'ADMIN'
   const payload = {
     admin_id: user.id,
     display_name: getDisplayName(user),
@@ -123,7 +117,7 @@ export async function getOrProvisionAdminAccess(
 
   return {
     adminId: user.id,
-    role: allowedRole,
+    role: provisionedRole,
     displayName: payload.display_name,
   }
 }

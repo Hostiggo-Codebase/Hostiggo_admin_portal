@@ -72,11 +72,18 @@ export function useTicketChat(ticketId: string) {
 
     const appendSocketMessage = (message: any) => {
       if (!message || message.ticket_id !== ticketId) return
+      const messageId = message.id || message.message_id
       queryClient.setQueryData(['messages', ticketId], (old: unknown) => {
         const messages = Array.isArray(old) ? old : []
-        if (messages.some((msg: any) => msg.id === message.id)) return messages
-        return [...messages, message]
+        if (messageId && messages.some((msg: any) => msg.id === messageId)) return messages
+        const next = [...messages, message]
+        return next.sort(
+          (a: any, b: any) =>
+            new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+        )
       })
+      queryClient.invalidateQueries({ queryKey: ['messages', ticketId] })
+      queryClient.refetchQueries({ queryKey: ['messages', ticketId], type: 'active' })
     }
 
     // Rooms live server-side and are lost on reconnect, so (re)join on every connect.
@@ -118,6 +125,7 @@ export function useTicketChat(ticketId: string) {
       console.log('[Socket.io Admin] Ticket updated:', data)
       queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
       queryClient.invalidateQueries({ queryKey: ['queue'] })
+      queryClient.refetchQueries({ queryKey: ['messages', ticketId], type: 'active' })
     }
 
     socket.on('new_message', handleNewMessage)
