@@ -17,47 +17,41 @@ export async function GET(request: Request) {
   try {
     const supabase = await createClient()
 
-    let fdwMsgs: any[] = []
-    let localMsgs: any[] = []
-
-    // 1. Try FDW view in public schema
-    try {
-      const { data, error } = await (supabase as any)
-        .from('fdw_chat_messages')
-        .select('*')
-        .eq('ticket_id', ticketId)
-        .order('created_at', { ascending: true })
-
-      if (!error && data) fdwMsgs = data
-    } catch (e) {
-      console.log('FDW msg error:', e)
-    }
-
-    // 2. Always read the secondary project directly. FDW can lag behind the
-    // write path, so using it as the only source makes fresh admin messages
-    // disappear locally even though Socket.io broadcasts them to the mobile app.
-    try {
-      const { data: secData } = await secondaryClient
+    // Read the app and local databases together. The FDW bridge can be down
+    // even while the app database is healthy; it must not block opening chat.
+    const [secondary, local] = await Promise.allSettled([
+      secondaryClient
         .from('chat_messages')
         .select('*')
         .eq('ticket_id', ticketId)
         .order('created_at', { ascending: true })
-      if (secData) fdwMsgs = [...fdwMsgs, ...secData]
-    } catch (e) {
-      console.log('Secondary msg fetch error:', e)
-    }
-
-    // 3. Try local table
-    try {
-      const { data, error } = await supabase
+        .abortSignal(AbortSignal.timeout(8_000)),
+      supabase
         .from('chat_messages')
         .select('*, message_attachments (*)')
         .eq('ticket_id', ticketId)
         .order('created_at', { ascending: true })
+        .abortSignal(AbortSignal.timeout(8_000)),
+    ])
 
-      if (!error && data) localMsgs = data
-    } catch (e) {
-      console.log('Local msg error:', e)
+    let fdwMsgs: any[] = secondary.status === 'fulfilled' && !secondary.value.error
+      ? secondary.value.data ?? [] : []
+    const localMsgs: any[] = local.status === 'fulfilled' && !local.value.error
+      ? local.value.data ?? [] : []
+
+    // The bridge mirrors the app database. Only use it if the direct read fails.
+    if (secondary.status === 'rejected' || secondary.value.error) {
+      try {
+        const { data, error } = await (supabase as any)
+          .from('fdw_chat_messages')
+          .select('*')
+          .eq('ticket_id', ticketId)
+          .order('created_at', { ascending: true })
+          .abortSignal(AbortSignal.timeout(8_000))
+        if (!error && data) fdwMsgs = data
+      } catch (error) {
+        console.error('Ticket message bridge lookup failed:', error)
+      }
     }
 
     // Combine and deduplicate

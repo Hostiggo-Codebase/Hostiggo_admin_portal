@@ -4,12 +4,9 @@ import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { io, Socket } from 'socket.io-client'
 
-// Hardcoded for dev: always the production socket service, ignoring NEXT_PUBLIC_SOCKET_URL and localhost.
-// To use another server (e.g. `npm run socket` on :4000), change this constant.
-const SOCKET_URL = 'https://hostiggoadminportal-production.up.railway.app'
-
+// Use the configured socket deployment for both queue updates and ticket chat.
 function getSocketUrl(): string {
-  return SOCKET_URL
+  return process.env.NEXT_PUBLIC_SOCKET_URL || 'https://hostiggoadminportal-production.up.railway.app'
 }
 
 let socketInstance: Socket | null = null

@@ -4,6 +4,7 @@ import { Server } from 'socket.io'
 import cors from 'cors'
 import { createClient } from '@supabase/supabase-js'
 import ws from 'ws'
+import { startQueueWatcher } from './queue-watcher.js'
 
 const app = express()
 app.use(cors())
@@ -275,6 +276,30 @@ io.on('connection', (socket) => {
     console.log(`[Socket.io] Client disconnected: ${socket.id}`)
   })
 })
+
+const stopQueueWatcher = startQueueWatcher({
+  shouldPoll: () => (io.sockets.adapter.rooms.get('agents')?.size ?? 0) > 0,
+  loadTickets: async () => {
+    const tickets = []
+    const pageSize = 1_000
+    // Read every page; Supabase otherwise caps results and can hide new tickets.
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabase
+        .from('support_tickets')
+        .select('*')
+        .order('ticket_id', { ascending: true })
+        .range(offset, offset + pageSize - 1)
+      if (error) throw error
+      tickets.push(...(data ?? []))
+      if (!data || data.length < pageSize) break
+    }
+    return tickets
+  },
+  // Send only an invalidation signal. Each dashboard fetches through its API.
+  notify: () => io.to('agents').emit('queue_updated'),
+  onError: (error) => console.error('[Socket.io] Queue watcher failed:', error.message),
+})
+server.on('close', stopQueueWatcher)
 
 const PORT = process.env.PORT || 4000
 server.listen(PORT, () => {

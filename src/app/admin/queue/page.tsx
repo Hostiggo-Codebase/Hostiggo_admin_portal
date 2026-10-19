@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getQueueTickets, fetchReviewBatch } from '@/lib/services/ticketService'
@@ -18,79 +18,43 @@ export default function QueuePage() {
   const router = useRouter()
   const [filterStatus, setFilterStatus] = useState<TicketStatus | ''>('')
   const [filterPriority, setFilterPriority] = useState<PriorityLabel | ''>('')
-  const [liveRefreshing, setLiveRefreshing] = useState(false)
   const qc = useQueryClient()
 
-  const { data: tickets = [], isLoading, isFetching } = useQuery({
+  const { data: tickets = [], isLoading, isError } = useQuery({
     queryKey: ['queue'],
-    queryFn: getQueueTickets,
-    refetchInterval: false,
+    queryFn: ({ signal }) => getQueueTickets(signal),
+    // Keep direct database writes visible even when the socket service is unavailable.
+    refetchInterval: 2_000,
     refetchOnMount: 'always',
     refetchOnReconnect: 'always',
     refetchOnWindowFocus: true,
     staleTime: 0,
   })
 
-  const loadQueueNow = useCallback(async () => {
-    setLiveRefreshing(true)
-    try {
-      const freshTickets = await getQueueTickets()
-      qc.setQueryData(['queue'], freshTickets)
-      console.log('[Admin Queue] Live queue refreshed:', {
-        total: freshTickets.length,
-        queued: freshTickets.filter((ticket) => ticket.status === 'QUEUED').length,
-      })
-    } catch (error) {
-      console.error('[Admin Queue] Live queue refresh failed:', error)
-    } finally {
-      setLiveRefreshing(false)
-    }
-  }, [qc])
-
-  useEffect(() => {
-    void loadQueueNow()
-
-    const intervalId = window.setInterval(() => {
-      void loadQueueNow()
-    }, 2_000)
-
-    const handleFocus = () => {
-      void loadQueueNow()
-    }
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') void loadQueueNow()
-    }
-
-    window.addEventListener('focus', handleFocus)
-    document.addEventListener('visibilitychange', handleVisibility)
-
-    return () => {
-      window.clearInterval(intervalId)
-      window.removeEventListener('focus', handleFocus)
-      document.removeEventListener('visibilitychange', handleVisibility)
-    }
-  }, [loadQueueNow])
-
-  // Live: the socket server tells agents when a customer writes (new ticket or new message).
   useEffect(() => {
     const socket = getSocket()
-    const join = () => socket.emit('join_agents')
     const refresh = () => {
-      console.log('[Socket.io Admin] Queue event received, refreshing queue')
-      void loadQueueNow()
+      // Mark an in-flight fetch stale without repeatedly cancelling it when
+      // several socket events arrive for the same customer message.
+      void qc.invalidateQueries({ queryKey: ['queue'] }, { cancelRefetch: false })
     }
-    if (socket.connected) join()
+    const join = () => {
+      socket.emit('join_agents')
+      refresh()
+    }
+
     socket.on('connect', join)
-    socket.io.on('reconnect', refresh)
     socket.on('queue_updated', refresh)
     socket.on('global_chat_activity', refresh)
+    if (socket.connected) join()
+    else socket.connect()
+
     return () => {
       socket.off('connect', join)
-      socket.io.off('reconnect', refresh)
       socket.off('queue_updated', refresh)
       socket.off('global_chat_activity', refresh)
     }
-  }, [loadQueueNow])
+  }, [qc])
 
   const batchM = useMutation({
     mutationFn: () => fetchReviewBatch(10),
@@ -148,13 +112,13 @@ export default function QueuePage() {
           {PRIORITIES.map(p => <option key={p}>{p}</option>)}
         </select>
 
-        <button
-          onClick={() => void loadQueueNow()}
-          className="text-xs text-gray-500 hover:text-gray-900 font-medium px-2 py-1.5"
-        >
-          {isFetching || liveRefreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
       </div>
+
+      {isError && (
+        <p role="status" className="border-b bg-amber-50 px-5 py-2 text-xs text-amber-800">
+          Unable to update tickets. Retrying automatically…
+        </p>
+      )}
 
       {/* Table */}
       <div className="flex-1 overflow-y-auto">

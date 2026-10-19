@@ -148,9 +148,9 @@ export async function sendMessage(params: SendMessageParams): Promise<SentMessag
 // Agent operations
 // ---------------------------------------------------------------------------
 
-export async function getQueueTickets(): Promise<TicketListRow[]> {
+export async function getQueueTickets(signal?: AbortSignal): Promise<TicketListRow[]> {
   try {
-    const res = await fetch(`/api/queue?t=${Date.now()}`, { cache: 'no-store' })
+    const res = await fetch(`/api/queue?t=${Date.now()}`, { cache: 'no-store', signal })
     if (res.ok) {
       const data = await res.json()
       if (Array.isArray(data)) {
@@ -158,15 +158,18 @@ export async function getQueueTickets(): Promise<TicketListRow[]> {
       }
     }
   } catch (e) {
+    if (signal?.aborted) throw e
     console.log('Error fetching /api/queue:', e)
   }
 
+  signal?.throwIfAborted()
   const supabase = createClient()
   const { data, error } = await supabase
     .from('support_tickets')
     .select('ticket_id, ticket_number, subject, status, priority, priority_label, queued_at, assigned_at, first_response_at, created_at, assigned_agent_id, complaint_categories(name)')
     .in('status', ['QUEUED','ASSIGNED','ACTIVE','WAITING_ON_USER','ESCALATED','REOPENED'])
     .order('priority', { ascending: true })
+    .abortSignal(signal ?? new AbortController().signal)
   if (error) throw error
   return (data ?? []) as unknown as TicketListRow[]
 }

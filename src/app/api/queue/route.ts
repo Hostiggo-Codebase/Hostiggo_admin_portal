@@ -10,57 +10,31 @@ export async function GET() {
   try {
     const supabase = await createClient()
 
-    let fdwTickets: any[] = []
-    let localTickets: any[] = []
+    // Read both databases concurrently; the FDW bridge can be unavailable
+    // while the app database is healthy and should not block live queue updates.
+    const [secondary, local] = await Promise.allSettled([
+      secondaryClient.from('support_tickets').select('*')
+        .abortSignal(AbortSignal.timeout(8_000)),
+      supabase.from('support_tickets')
+        .select('ticket_id, ticket_number, subject, status, priority, priority_label, queued_at, assigned_at, first_response_at, created_at, assigned_agent_id, complaint_categories(name)')
+        .abortSignal(AbortSignal.timeout(8_000)),
+    ])
+    let fdwTickets: any[] = secondary.status === 'fulfilled' && !secondary.value.error
+      ? secondary.value.data ?? [] : []
+    const localTickets: any[] = local.status === 'fulfilled' && !local.value.error
+      ? local.value.data ?? [] : []
 
-    // 1. Fetch from FDW view
-    try {
-      const { data: prodData, error: prodErr } = await (supabase as any)
-        .from('fdw_support_tickets')
-        .select('*, complaint_categories(name)')
-
-      if (!prodErr && prodData) {
-        fdwTickets = prodData
-      } else {
-        // Fallback without join
-        const { data: rawProd } = await (supabase as any)
+    if (secondary.status === 'rejected' || secondary.value.error) {
+      try {
+        const { data, error } = await (supabase as any)
           .from('fdw_support_tickets')
           .select('*')
-        if (rawProd) fdwTickets = rawProd
+          .abortSignal(AbortSignal.timeout(8_000))
+        if (error) throw error
+        fdwTickets = data ?? []
+      } catch (error) {
+        console.error('Queue bridge lookup failed:', error)
       }
-    } catch (e) {
-      console.log('FDW fetch error:', e)
-    }
-
-    // Always merge the app project's tickets directly: the FDW view can be stale or down, and a ticket must show
-    // up in the queue the moment a customer sends their first message. Deduplicated by ticket_id below.
-    {
-      try {
-        const { data: secondaryTickets, error: secondaryError } = await secondaryClient
-          .from('support_tickets')
-          .select('*')
-
-        if (secondaryError) {
-          console.error('Secondary queue fetch error:', secondaryError.message)
-        } else if (secondaryTickets) {
-          fdwTickets = [...fdwTickets, ...secondaryTickets]
-        }
-      } catch (e) {
-        console.error('Secondary queue fetch exception:', e)
-      }
-    }
-
-    // 2. Fetch from local table
-    try {
-      const { data: localData, error: localErr } = await supabase
-        .from('support_tickets')
-        .select('ticket_id, ticket_number, subject, status, priority, priority_label, queued_at, assigned_at, first_response_at, created_at, assigned_agent_id, complaint_categories(name)')
-
-      if (!localErr && localData) {
-        localTickets = localData
-      }
-    } catch (e) {
-      console.log('Local fetch error:', e)
     }
 
     // 3. Combine both lists (Deduplicate by ticket_id)

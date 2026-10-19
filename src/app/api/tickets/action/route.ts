@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { secondaryClient } from '@/lib/supabase/secondary'
 import { NextResponse } from 'next/server'
+import { adjustAgentCount } from '@/lib/services/agent-count'
 
 // The app project's support_tickets may not have the agent-tracking columns (assigned_agent_id, assigned_at,
 // resolved_at). Try the full update, then fall back to the columns every deployment has so status changes
@@ -50,9 +51,7 @@ export async function POST(request: Request) {
         })
 
         if (agentId) {
-          await (supabase as any)
-            .rpc('increment_agent_count', { p_agent_id: agentId })
-            .catch(() => {})
+          await adjustAgentCount(supabase as any, agentId, 'increment')
         }
         return NextResponse.json({ success: true, status: 'ACTIVE' })
       }
@@ -66,9 +65,7 @@ export async function POST(request: Request) {
 
         // If status moved to non-active state, decrement agent count
         if (agentId && ['RESOLVED', 'CLOSED', 'ESCALATED', 'WAITING_ON_USER'].includes(newStatus)) {
-          await (supabase as any)
-            .rpc('decrement_agent_count', { p_agent_id: agentId })
-            .catch(() => {})
+          await adjustAgentCount(supabase as any, agentId, 'decrement')
         }
         return NextResponse.json({ success: true, status: newStatus })
       }
