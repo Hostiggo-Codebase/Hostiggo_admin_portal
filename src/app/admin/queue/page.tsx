@@ -64,8 +64,14 @@ export default function QueuePage() {
       try {
         for (let batch = 0; batch < 20; batch += 1) {
           const response = await fetch('/api/tickets/backfill-titles', { method: 'POST' })
-          const result = await response.json()
-          if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`)
+          const responseBody = await response.text()
+          let result: { error?: string; remainingMayExist?: boolean; generated?: number; renamed?: number; scanned?: number }
+          try {
+            result = responseBody ? JSON.parse(responseBody) : {}
+          } catch {
+            throw new Error(`Backfill API returned an invalid response (HTTP ${response.status}).`)
+          }
+          if (!response.ok) throw new Error(result.error || `Request failed (HTTP ${response.status}).`)
           if (result.error) throw new Error(result.error)
           await qc.invalidateQueries({ queryKey: ['queue'] })
           if (cancelled) return

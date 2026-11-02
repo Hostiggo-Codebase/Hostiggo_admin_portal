@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { secondaryClient } from '@/lib/supabase/secondary'
 import { nvidiaChatCompletion } from '@/lib/ai/nvidia'
-import { after, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,8 +21,7 @@ export async function POST() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  let initial: Promise<NextResponse> | undefined
-  after(async () => {
+  try {
     const { data: tickets, error } = await secondaryClient.from('support_tickets')
       .select('ticket_id, subject, user_id')
       .or('subject.eq.App Support Chat,subject.eq.Customer support request,subject.ilike.%— Support request,subject.ilike.%— Customer support request,subject.ilike.% — %')
@@ -30,8 +29,7 @@ export async function POST() {
       .limit(BATCH_SIZE)
     if (error) {
       console.error('Legacy ticket title scan failed:', error.message)
-      initial = Promise.resolve(NextResponse.json({ error: error.message }, { status: 500 }))
-      return
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     let renamed = 0
@@ -95,12 +93,12 @@ export async function POST() {
         errors.push(`${ticket.ticket_id}: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
     }
-    initial = Promise.resolve(NextResponse.json({
+    return NextResponse.json({
       scanned: tickets?.length ?? 0, renamed, generated, skipped, failed, errors,
       remainingMayExist: (tickets?.length ?? 0) === BATCH_SIZE,
-    }))
-  })
-
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  return (await initial) ?? NextResponse.json({ started: true, batchSize: BATCH_SIZE }, { status: 202 })
+    })
+  } catch (error) {
+    console.error('Ticket title backfill failed:', error)
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Ticket title backfill failed' }, { status: 500 })
+  }
 }
