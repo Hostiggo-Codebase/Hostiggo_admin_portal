@@ -25,6 +25,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <nav className="flex-1 p-3 space-y-1 text-sm">
           <Link href="/admin/queue"       className="block px-3 py-2 rounded hover:bg-gray-100">Queue</Link>
           <Link href="/admin/my-assigned" className="block px-3 py-2 rounded hover:bg-gray-100">My Assigned</Link>
+          <Link href="/admin/active-chats" className="block px-3 py-2 rounded hover:bg-gray-100">Active Chats</Link>
           {isSA && <>
             <Link href="/admin/escalations" className="block px-3 py-2 rounded hover:bg-gray-100">Escalations</Link>
             <Link href="/admin/kyc"         className="block px-3 py-2 rounded hover:bg-gray-100">KYC Review</Link>
