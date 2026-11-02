@@ -212,32 +212,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'ticketId and message body are required' }, { status: 400 })
     }
 
-    // 1. Try Secondary Supabase DB direct insert (for mobile app tickets)
-    try {
+    // Tickets from the customer/mobile app live in the secondary project.
+    // Select the database by ticket ownership before writing: falling through
+    // to the primary database after a secondary write error creates a message
+    // that the customer app can never read.
+    const { data: secondaryTicket, error: secondaryTicketError } = await secondaryClient
+      .from('support_tickets')
+      .select('ticket_id')
+      .eq('ticket_id', ticketId)
+      .maybeSingle()
+
+    if (secondaryTicketError) {
+      console.error('Secondary ticket lookup failed:', secondaryTicketError)
+      return NextResponse.json({ error: 'Could not locate the ticket database' }, { status: 502 })
+    }
+
+    if (secondaryTicket) {
       const { data: secMsg, error: secErr } = await secondaryClient
         .from('chat_messages')
         .insert({
           ticket_id: ticketId,
           sender_id: agentId,
           sender_type: 'agent',
-          body: body,
+          body: body.trim(),
           is_internal_note: isInternalNote ?? false,
         })
         .select()
         .single()
 
-      if (!secErr && secMsg) {
-        if (secMsg.sender_type === 'user' && !secMsg.is_internal_note) {
-          // Run after the response: model latency must not delay chat delivery.
-          void maybeGenerateTicketTitle(ticketId)
-        }
-        return NextResponse.json({ success: true, messageId: secMsg.id, message: secMsg })
+      if (secErr || !secMsg) {
+        console.error('Secondary DB message insert failed:', secErr)
+        return NextResponse.json({ error: secErr?.message || 'Message could not be saved' }, { status: 502 })
       }
-    } catch (e) {
-      console.log('Secondary DB msg send error:', e)
+
+      return NextResponse.json({ success: true, messageId: secMsg.id, message: secMsg })
     }
 
-    // 2. Fallback to local RPC send_message
+    // Primary-project tickets use the authenticated RPC.
     const { data: rpcMessageId, error } = await (supabase as any).rpc('send_message', {
       p_ticket_id: ticketId,
       p_body: body,

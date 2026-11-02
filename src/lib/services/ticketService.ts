@@ -127,21 +127,19 @@ export async function sendMessage(params: SendMessageParams): Promise<SentMessag
         isInternalNote: params.isInternalNote ?? false,
       }),
     })
-    if (res.ok) {
-      const { messageId, message } = await res.json()
-      if (messageId) return { messageId, message }
+    const payload = await res.json().catch(() => null)
+    if (!res.ok) {
+      throw new Error(payload?.error || `Message API failed (${res.status})`)
     }
+    if (payload?.messageId) return { messageId: payload.messageId, message: payload.message }
+    throw new Error('Message API returned success without a saved message')
   } catch (e) {
-    console.log('Error sending /api/messages:', e)
+    // The API selects the correct database for this ticket. Retrying through
+    // the browser's primary Supabase client can silently target another
+    // project and make a failed message look like a generic RPC error.
+    console.error('Error sending /api/messages:', e)
+    throw e
   }
-
-  const { data, error } = await rpc('send_message', {
-    p_ticket_id:        params.ticketId,
-    p_body:             params.body,
-    p_is_internal_note: params.isInternalNote ?? false,
-  })
-  if (error) throw error
-  return { messageId: data as string }
 }
 
 // ---------------------------------------------------------------------------

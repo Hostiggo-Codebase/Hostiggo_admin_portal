@@ -6,10 +6,13 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatDate(iso: string) {
-  return new Date(iso).toLocaleString('en-IN', {
+  // Vercel renders in UTC while customer browsers may use another timezone.
+  // Pin the timezone so server HTML and the first browser render match.
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
     day: '2-digit', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
-  })
+  }).format(new Date(iso))
 }
 
 export function timeAgo(iso: string) {
