@@ -510,7 +510,7 @@ export default function DummyMobileApp() {
       .insert({
         user_id: appUser.id,
         category_id: DEFAULT_CHAT_CATEGORY_ID,
-        subject: 'App Support Chat',
+        subject: `${appUser.name || 'Hostiggo User'} — Support request`,
         description: 'Support chat started from the mobile app.',
         priority_label: 'General',
         priority: 3,

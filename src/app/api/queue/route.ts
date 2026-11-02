@@ -45,6 +45,7 @@ export async function GET() {
         combinedMap.set(id, {
           ...t,
           ticket_id: id,
+          subject: t.subject || 'Customer support request',
           ticket_number: t.ticket_number || `HG-${id.slice(0, 5)}`,
           status: t.status || 'QUEUED',
           priority_label: t.priority_label || 'General',

@@ -3,6 +3,11 @@ import { beforeEach, expect, it, vi } from 'vitest'
 const { primaryFrom, secondaryFrom } = vi.hoisted(() => ({
   primaryFrom: vi.fn(), secondaryFrom: vi.fn(),
 }))
+vi.mock('@/lib/ai/nvidia', () => ({ nvidiaChatCompletion: vi.fn() }))
+vi.mock('next/server', async (importOriginal) => ({
+  ...await importOriginal<typeof import('next/server')>(),
+  after: (callback: () => unknown) => { void callback() },
+}))
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ from: primaryFrom }) }))
 vi.mock('@/lib/supabase/secondary', () => ({ secondaryClient: { from: secondaryFrom } }))
 

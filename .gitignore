@@ -20,6 +20,9 @@ dist/
 .env.test.local
 .env.production.local
 
+# Local-only model provider credentials
+.secrets/
+
 # IDE / Editor
 .vscode/
 .idea/

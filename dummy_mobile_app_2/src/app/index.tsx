@@ -169,7 +169,7 @@ export default function MainAppStyleSupportDummy() {
         .insert({
           user_id: user.id,
           category_id: DEFAULT_CATEGORY_ID,
-          subject: 'App Support Chat',
+          subject: `${user.name || 'Hostiggo User'} — Support request`,
           description: 'Support chat started from the mobile app.',
           priority_label: 'General',
           priority: 3,

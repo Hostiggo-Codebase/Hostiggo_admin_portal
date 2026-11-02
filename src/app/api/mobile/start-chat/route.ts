@@ -3,6 +3,7 @@ import { secondaryClient } from '@/lib/supabase/secondary'
 
 const DEFAULT_CATEGORY_ID = 'ca222222-2222-2222-2222-222222222222'
 const ACTIVE_STATUSES = ['QUEUED', 'ASSIGNED', 'ACTIVE', 'WAITING_ON_USER', 'REOPENED']
+const TITLE_PENDING_PREFIX = 'Support request'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const corsHeaders = {
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
       .insert({
         user_id: userId,
         category_id: DEFAULT_CATEGORY_ID,
-        subject: 'App Support Chat',
+        subject: `${user.name || name} — ${TITLE_PENDING_PREFIX}`,
         description: 'Support chat started from the mobile app.',
         priority_label: 'General',
         priority: 3,
@@ -124,6 +125,16 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (ticketCreateError) throw ticketCreateError
+
+    // The first-message Socket.io flow creates tickets in its own database path.
+    // This tiny initial message keeps the name visible before the customer writes.
+    const { error: welcomeMessageError } = await secondaryClient.from('chat_messages').insert({
+      ticket_id: newTicket.ticket_id,
+      sender_id: userId,
+      sender_type: 'system',
+      body: `${user.name || name} started a support request.`,
+    })
+    if (welcomeMessageError) console.error('Could not add ticket welcome message:', welcomeMessageError.message)
 
     return json({
       ticket_id: newTicket.ticket_id,

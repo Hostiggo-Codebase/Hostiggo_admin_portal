@@ -144,7 +144,7 @@ async function findOrCreateMobileTicket(data = {}) {
     .insert({
       user_id: user.user_id,
       category_id: data.category_id || DEFAULT_CATEGORY_ID,
-      subject: data.subject || 'App Support Chat',
+      subject: data.subject || `${String(data.name || data.display_name || 'Customer').trim()} — Customer support request`,
       description: data.description || data.body || 'Support chat started from the mobile app.',
       priority_label: data.priority_label || 'General',
       priority: data.priority || 3,
@@ -212,6 +212,18 @@ io.on('connection', (socket) => {
 
     try {
       const ticket = await findOrCreateMobileTicket(data)
+      if (ticket.created) {
+        // A visible user-name title and opening message exist before the user
+        // sends their first chat message.
+        const welcomeBody = `${String(data.name || data.display_name || 'Customer').trim()} started a support request.`
+        const { error: welcomeError } = await supabase.from('chat_messages').insert({
+          ticket_id: ticket.ticket_id,
+          sender_id: ticket.user_id,
+          sender_type: 'system',
+          body: welcomeBody,
+        })
+        if (welcomeError) console.error('[Socket.io] Could not add ticket welcome message:', welcomeError.message)
+      }
       const ticket_id = ticket.ticket_id
       const sender_id = data.sender_id || data.user_id || ticket.user_id
       const sender_type = normalizeSenderType(data.sender_type)

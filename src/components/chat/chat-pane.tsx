@@ -85,7 +85,7 @@ export function ChatPane({ ticketId, currentUserId, status, isAgent, showInterna
           <MessageBubble
             key={msg.id}
             message={msg}
-            isOwn={msg.sender_id === currentUserId}
+            isOwn={isAgent ? msg.sender_type === 'agent' : msg.sender_id === currentUserId}
           />
         ))}
         {typingUsers.length > 0 && (
