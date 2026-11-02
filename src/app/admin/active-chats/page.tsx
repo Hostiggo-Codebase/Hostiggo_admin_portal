@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { MessagesSquare, Search } from 'lucide-react'
@@ -123,7 +122,7 @@ export default function ActiveChatsPage() {
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-gray-50 border-b">
               <tr>
-                {['Customer', 'Assigned admin', 'Chat', 'Status', 'Last activity', 'Opened', ''].map(h => (
+                {['Customer', 'Assigned admin', 'Chat', 'Status', 'Last activity', 'Opened'].map(h => (
                   <th key={h} className="text-left px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
                     {h}
                   </th>
@@ -147,12 +146,6 @@ export default function ActiveChatsPage() {
                   <td className="px-4 py-3"><StatusBadge status={c.status as TicketStatus} /></td>
                   <td className="px-4 py-3 text-xs text-gray-400">{timeAgo(c.last_activity_at)}</td>
                   <td className="px-4 py-3 text-xs text-gray-400">{timeAgo(c.created_at)}</td>
-                  <td className="px-4 py-3">
-                    <Link href={`/admin/tickets/${c.ticket_id}`}
-                      className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">
-                      Open →
-                    </Link>
-                  </td>
                 </tr>
               ))}
             </tbody>
