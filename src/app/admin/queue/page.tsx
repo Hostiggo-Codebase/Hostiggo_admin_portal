@@ -18,6 +18,7 @@ export default function QueuePage() {
   const router = useRouter()
   const [filterStatus, setFilterStatus] = useState<TicketStatus | ''>('')
   const [filterPriority, setFilterPriority] = useState<PriorityLabel | ''>('')
+  const [titleBackfill, setTitleBackfill] = useState('')
   const qc = useQueryClient()
 
   const { data: tickets = [], isLoading, isError } = useQuery({
@@ -32,17 +33,6 @@ export default function QueuePage() {
   })
 
   useEffect(() => {
-    const storageKey = 'hostiggo-title-backfill-started'
-    if (sessionStorage.getItem(storageKey) !== 'true') {
-      sessionStorage.setItem(storageKey, 'true')
-      void fetch('/api/tickets/backfill-titles', { method: 'POST' }).then(() => {
-        void qc.invalidateQueries({ queryKey: ['queue'] })
-      }).catch((error) => {
-        sessionStorage.removeItem(storageKey)
-        console.error('Could not start legacy ticket title updates:', error)
-      })
-    }
-
     const socket = getSocket()
     const refresh = () => {
       // Mark an in-flight fetch stale without repeatedly cancelling it when
@@ -65,6 +55,33 @@ export default function QueuePage() {
       socket.off('queue_updated', refresh)
       socket.off('global_chat_activity', refresh)
     }
+  }, [qc])
+
+  useEffect(() => {
+    let cancelled = false
+    async function updateOldTitles() {
+      setTitleBackfill('Updating old ticket titles…')
+      try {
+        for (let batch = 0; batch < 20; batch += 1) {
+          const response = await fetch('/api/tickets/backfill-titles', { method: 'POST' })
+          const result = await response.json()
+          if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`)
+          if (result.error) throw new Error(result.error)
+          await qc.invalidateQueries({ queryKey: ['queue'] })
+          if (cancelled) return
+          if (!result.remainingMayExist) {
+            setTitleBackfill(`Old ticket titles updated: ${result.generated} AI titles, ${result.renamed} customer names.`)
+            return
+          }
+          if (!result.scanned) break
+        }
+        if (!cancelled) setTitleBackfill('Title scan paused. Reopen the queue to continue.')
+      } catch (error) {
+        if (!cancelled) setTitleBackfill(error instanceof Error ? `Title update failed: ${error.message}` : 'Title update failed.')
+      }
+    }
+    void updateOldTitles()
+    return () => { cancelled = true }
   }, [qc])
 
   const batchM = useMutation({
@@ -92,6 +109,7 @@ export default function QueuePage() {
           <p className="text-xs text-gray-500">
             {queuedCount} waiting · {tickets.length} total
           </p>
+          {titleBackfill && <p role="status" className="text-xs text-indigo-600">{titleBackfill}</p>}
         </div>
 
         {/* Batch fetch button */}
