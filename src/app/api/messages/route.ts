@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { secondaryClient } from '@/lib/supabase/secondary'
-import { after, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { nvidiaChatCompletion } from '@/lib/ai/nvidia'
 
 export const dynamic = 'force-dynamic'
@@ -114,7 +114,7 @@ export async function GET(request: Request) {
         (message) => message.sender_type === 'user' && !message.is_internal_note,
       )
       if (customerMessages.length >= TITLE_AFTER_CUSTOMER_MESSAGES) {
-        after(() => maybeGenerateTicketTitle(ticketId))
+        void maybeGenerateTicketTitle(ticketId)
       }
     }
 
@@ -229,7 +229,7 @@ export async function POST(request: Request) {
       if (!secErr && secMsg) {
         if (secMsg.sender_type === 'user' && !secMsg.is_internal_note) {
           // Run after the response: model latency must not delay chat delivery.
-          after(() => maybeGenerateTicketTitle(ticketId))
+          void maybeGenerateTicketTitle(ticketId)
         }
         return NextResponse.json({ success: true, messageId: secMsg.id, message: secMsg })
       }
@@ -259,7 +259,7 @@ export async function POST(request: Request) {
         .single()
 
       if (localMsg) {
-        if (!isInternalNote) after(() => maybeGenerateTicketTitle(ticketId))
+        if (!isInternalNote) void maybeGenerateTicketTitle(ticketId)
         return NextResponse.json({ success: true, messageId: (localMsg as any).id, message: localMsg })
       }
       throw error
@@ -275,7 +275,7 @@ export async function POST(request: Request) {
       created_at: new Date().toISOString(),
     }
 
-    if (!isInternalNote) after(() => maybeGenerateTicketTitle(ticketId))
+    if (!isInternalNote) void maybeGenerateTicketTitle(ticketId)
 
     return NextResponse.json({ success: true, messageId: rpcMessageId, message: synthesizedRpcMsg })
   } catch (error: any) {
