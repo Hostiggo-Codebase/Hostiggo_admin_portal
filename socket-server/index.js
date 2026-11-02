@@ -29,6 +29,12 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 const DEFAULT_CATEGORY_ID = 'ca222222-2222-2222-2222-222222222222'
 const ACTIVE_STATUSES = ['QUEUED', 'ASSIGNED', 'ACTIVE', 'WAITING_ON_USER', 'REOPENED']
+async function nextMobileTitle() {
+  const { count, error } = await supabase.from('support_tickets')
+    .select('ticket_id', { count: 'exact', head: true }).ilike('subject', 'Mobile %')
+  if (error) throw error
+  return `Mobile ${(count ?? 0) + 1}`
+}
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function normalizeUserPayload(data = {}) {
@@ -139,12 +145,13 @@ async function findOrCreateMobileTicket(data = {}) {
     return { ...activeTicket, created: false }
   }
 
+  const initialSubject = data.subject || await nextMobileTitle()
   const { data: newTicket, error: createError } = await supabase
     .from('support_tickets')
     .insert({
       user_id: user.user_id,
       category_id: data.category_id || DEFAULT_CATEGORY_ID,
-      subject: data.subject || `${String(data.name || data.display_name || 'Customer').trim()} — Customer support request`,
+      subject: initialSubject,
       description: data.description || data.body || 'Support chat started from the mobile app.',
       priority_label: data.priority_label || 'General',
       priority: data.priority || 3,

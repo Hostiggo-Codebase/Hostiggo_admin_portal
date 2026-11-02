@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { secondaryClient } from '@/lib/supabase/secondary'
 import { nvidiaChatCompletion } from '@/lib/ai/nvidia'
+import { ticketSourceFromSubject, ticketSourceLabel } from '@/lib/services/ticket-source'
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -59,11 +60,16 @@ export async function POST() {
           /^Customer\b/i.test(currentSubject) ||
           currentSubject.endsWith(`— ${FALLBACK}`) || currentSubject.endsWith(`— ${GENERIC}`)
         if (isGeneric) {
+          const source = ticketSourceFromSubject(currentSubject)
+          const sourceName = source
+            ? ticketSourceLabel(source, (tickets ?? []).filter((row) => ticketSourceFromSubject(row.subject) === source).findIndex((row) => row.ticket_id === ticket.ticket_id) + 1)
+            : null
           const { data: customer, error: userError } = await secondaryClient
             .from('users').select('name, display_name').eq('id', ticket.user_id).maybeSingle()
           if (userError) throw userError
-          const customerName = String(customer?.name || 'Customer').trim().slice(0, 50)
-          const namedSubject = `${customerName} — ${FALLBACK}`
+          const customerName = String(customer?.name || customer?.display_name || '').trim().slice(0, 50)
+          const namedSubject = sourceName || (customerName ? `${customerName} — ${FALLBACK}` : currentSubject)
+          if (namedSubject === currentSubject) { skipped += 1; continue }
           const { error: renameError } = await secondaryClient.from('support_tickets')
             .update({ subject: namedSubject, updated_at: new Date().toISOString() })
             .eq('ticket_id', ticket.ticket_id).eq('subject', currentSubject)

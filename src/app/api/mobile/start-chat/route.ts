@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { secondaryClient } from '@/lib/supabase/secondary'
+import { ticketSourceLabel } from '@/lib/services/ticket-source'
 
 const DEFAULT_CATEGORY_ID = 'ca222222-2222-2222-2222-222222222222'
 const ACTIVE_STATUSES = ['QUEUED', 'ASSIGNED', 'ACTIVE', 'WAITING_ON_USER', 'REOPENED']
@@ -110,12 +111,18 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    const { count: mobileTicketCount, error: countError } = await secondaryClient
+      .from('support_tickets')
+      .select('ticket_id', { count: 'exact', head: true })
+      .ilike('subject', 'Mobile %')
+    if (countError) throw countError
+
     const { data: newTicket, error: ticketCreateError } = await secondaryClient
       .from('support_tickets')
       .insert({
         user_id: userId,
         category_id: DEFAULT_CATEGORY_ID,
-        subject: `${user.name || name} — ${TITLE_PENDING_PREFIX}`,
+        subject: ticketSourceLabel('mobile', (mobileTicketCount ?? 0) + 1),
         description: 'Support chat started from the mobile app.',
         priority_label: 'General',
         priority: 3,

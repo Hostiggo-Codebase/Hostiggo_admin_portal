@@ -47,6 +47,13 @@ const STARTERS = [
 const DEFAULT_CATEGORY_ID = 'ca222222-2222-2222-2222-222222222222'
 const ACTIVE_STATUSES = ['QUEUED', 'ASSIGNED', 'ACTIVE', 'WAITING_ON_USER', 'REOPENED']
 
+async function nextMobileTicketSubject() {
+  const { count, error } = await supabase.from('support_tickets')
+    .select('ticket_id', { count: 'exact', head: true }).ilike('subject', 'Mobile %')
+  if (error) throw error
+  return `Mobile ${(count ?? 0) + 1}`
+}
+
 function getSocketUrl(): string {
   return process.env.EXPO_PUBLIC_SOCKET_URL || 'https://hostiggoadminportal-production.up.railway.app'
 }
@@ -164,12 +171,13 @@ export default function MainAppStyleSupportDummy() {
 
     let ticket = activeTickets?.[0]
     if (!ticket) {
+      const subject = await nextMobileTicketSubject()
       const { data: newTicket, error: ticketError } = await supabase
         .from('support_tickets')
         .insert({
           user_id: user.id,
           category_id: DEFAULT_CATEGORY_ID,
-          subject: `${user.name || 'Hostiggo User'} — Support request`,
+          subject,
           description: 'Support chat started from the mobile app.',
           priority_label: 'General',
           priority: 3,

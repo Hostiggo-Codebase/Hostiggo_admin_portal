@@ -106,6 +106,13 @@ const CATEGORIES = [
 const DEFAULT_CHAT_CATEGORY_ID = 'ca222222-2222-2222-2222-222222222222'
 const ACTIVE_CHAT_STATUSES = ['QUEUED', 'ASSIGNED', 'ACTIVE', 'WAITING_ON_USER', 'REOPENED']
 
+async function nextMobileTicketSubject() {
+  const { count, error } = await supabase.from('support_tickets')
+    .select('ticket_id', { count: 'exact', head: true }).ilike('subject', 'Mobile %')
+  if (error) throw error
+  return `Mobile ${(count ?? 0) + 1}`
+}
+
 function normalizeUser(user: any, fallbackName = '') {
   return {
     ...user,
@@ -505,12 +512,13 @@ export default function DummyMobileApp() {
       return activeTicket
     }
 
+    const subject = await nextMobileTicketSubject()
     const { data: newTicket, error: ticketError } = await supabase
       .from('support_tickets')
       .insert({
         user_id: appUser.id,
         category_id: DEFAULT_CHAT_CATEGORY_ID,
-        subject: `${appUser.name || 'Hostiggo User'} — Support request`,
+        subject,
         description: 'Support chat started from the mobile app.',
         priority_label: 'General',
         priority: 3,
