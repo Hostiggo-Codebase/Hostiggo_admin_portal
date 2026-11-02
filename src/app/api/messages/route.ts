@@ -8,9 +8,7 @@ export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
 const TITLE_AFTER_CUSTOMER_MESSAGES = 3
-const TITLE_BACKFILL_BATCH_SIZE = 8
 const TITLE_PENDING_PREFIX = 'Support request'
-const TITLE_CUSTOMER_PREFIX = 'Customer support request'
 
 function safeTitle(value: string): string | null {
   const title = value
@@ -51,7 +49,9 @@ async function maybeGenerateTicketTitle(ticketId: string): Promise<void> {
   try {
     const { data: ticket } = await secondaryClient.from('support_tickets')
       .select('subject, user_id').eq('ticket_id', ticketId).maybeSingle()
-    if (!ticket || ![TITLE_PENDING_PREFIX, TITLE_CUSTOMER_PREFIX].some((prefix) => ticket.subject.includes(prefix))) return
+    const defaultSubject = ticket?.subject === 'App Support Chat' ||
+      ticket?.subject.endsWith(`— ${TITLE_PENDING_PREFIX}`)
+    if (!ticket || !defaultSubject) return
 
     const { data: messages, error } = await secondaryClient.from('chat_messages')
       .select('sender_type, is_internal_note, body')
@@ -73,45 +73,12 @@ async function maybeGenerateTicketTitle(ticketId: string): Promise<void> {
     ], { maxTokens: 40, timeoutMs: 12_000 })
     const title = safeTitle(generated)
     if (title) {
-      const subject = ticket.subject.replace(/\s*[—-]\s*(?:Support request|Customer support request)\s*/i, '').trim()
-      const newSubject = subject ? `${subject} — ${title}` : title
+      const newSubject = title
       await updateTicketTitle(ticketId, ticket.subject, newSubject)
     }
   } catch (error) {
     // Title generation is optional; message delivery must continue to work.
     console.error('AI ticket title generation skipped:', error)
-  }
-}
-
-async function backfillLegacyTitles(): Promise<void> {
-  const { data: tickets, error } = await secondaryClient.from('support_tickets')
-    .select('ticket_id, subject, user_id')
-    .or('subject.eq.App Support Chat,subject.eq.Customer support request,subject.ilike.%— Support request')
-    .order('created_at', { ascending: false })
-    .limit(TITLE_BACKFILL_BATCH_SIZE)
-  if (error) throw error
-
-  for (const ticket of tickets ?? []) {
-    const defaultSubject = ticket.subject === 'App Support Chat' ||
-      ticket.subject === TITLE_CUSTOMER_PREFIX ||
-      ticket.subject.endsWith(`— ${TITLE_PENDING_PREFIX}`)
-    if (defaultSubject) {
-      const { data: customer } = await (secondaryClient as any).schema('hostiggo_testing_schema')
-        .from('users').select('name').eq('user_id', ticket.user_id).maybeSingle()
-      const customerName = String(customer?.name || 'Customer').trim().slice(0, 50)
-      const initialSubject = `${customerName} — ${TITLE_PENDING_PREFIX}`
-      const { error: renamed } = await secondaryClient.from('support_tickets')
-        .update({ subject: initialSubject, updated_at: new Date().toISOString() })
-        .eq('ticket_id', ticket.ticket_id).eq('subject', ticket.subject)
-      if (renamed) {
-        console.error('Legacy ticket name update failed:', renamed.message)
-        continue
-      }
-    }
-
-    // AI generation runs after the response and only changes recognized
-    // generic/name-only titles. Human-written subjects are left untouched.
-    after(() => maybeGenerateTicketTitle(ticket.ticket_id))
   }
 }
 
@@ -125,12 +92,6 @@ export async function GET(request: Request) {
 
   try {
     const supabase = await createClient()
-    if (searchParams.get('ticketId')) {
-      after(() => backfillLegacyTitles().catch((error) => {
-        console.error('Legacy ticket title backfill failed:', error)
-      }))
-    }
-
     // Read the app and local databases together. The FDW bridge can be down
     // even while the app database is healthy; it must not block opening chat.
     const [secondary, local] = await Promise.allSettled([

@@ -32,6 +32,17 @@ export default function QueuePage() {
   })
 
   useEffect(() => {
+    const storageKey = 'hostiggo-title-backfill-started'
+    if (sessionStorage.getItem(storageKey) !== 'true') {
+      sessionStorage.setItem(storageKey, 'true')
+      void fetch('/api/tickets/backfill-titles', { method: 'POST' }).then(() => {
+        void qc.invalidateQueries({ queryKey: ['queue'] })
+      }).catch((error) => {
+        sessionStorage.removeItem(storageKey)
+        console.error('Could not start legacy ticket title updates:', error)
+      })
+    }
+
     const socket = getSocket()
     const refresh = () => {
       // Mark an in-flight fetch stale without repeatedly cancelling it when
