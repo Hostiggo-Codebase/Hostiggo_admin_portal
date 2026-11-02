@@ -23,28 +23,22 @@ describe('buildActiveChats', () => {
     expect(row.admin).toEqual({ id: 'a1', name: 'Riya Agent' })
   })
 
-  it('leaves admin null when unassigned and falls back to short ids when names are unknown', () => {
-    const [row] = buildActiveChats(
-      [{ ticket_id: 't1', status: 'QUEUED', user_id: 'abcdef1234567890' }],
-      customers, admins,
-    )
-    expect(row.admin).toBeNull()
-    expect(row.customer.name).toBe('Customer abcdef12')
-
-    const [orphan] = buildActiveChats(
-      [{ ticket_id: 't2', status: 'ACTIVE', assigned_agent_id: 'zzzzzzzz-1' }],
-      customers, admins,
-    )
-    expect(orphan.admin?.name).toBe('Admin zzzzzzzz')
-    expect(orphan.customer.name).toBe('Unknown customer')
+  it('excludes unassigned chats and falls back to short ids when names are unknown', () => {
+    const rows = buildActiveChats([
+      { ticket_id: 'queued', status: 'QUEUED', user_id: 'abcdef1234567890' },
+      { ticket_id: 'orphan', status: 'ACTIVE', assigned_agent_id: 'zzzzzzzz-1' },
+    ], customers, admins)
+    expect(rows.map(r => r.ticket_id)).toEqual(['orphan'])
+    expect(rows[0].admin.name).toBe('Admin zzzzzzzz')
+    expect(rows[0].customer.name).toBe('Unknown customer')
   })
 
   it('dedupes by ticket id and sorts by priority then age', () => {
     const rows = buildActiveChats([
-      { ticket_id: 'old-low', status: 'ACTIVE', priority: 4, created_at: '2026-01-01T00:00:00Z' },
-      { ticket_id: 'new-urgent', status: 'ACTIVE', priority: 1, created_at: '2026-01-03T00:00:00Z' },
-      { ticket_id: 'new-low', status: 'ACTIVE', priority: 4, created_at: '2026-01-02T00:00:00Z' },
-      { id: 'new-low', status: 'ACTIVE', priority: 4, created_at: '2026-01-02T00:00:00Z' },
+      { ticket_id: 'old-low', status: 'ACTIVE', assigned_agent_id: 'a1', priority: 4, created_at: '2026-01-01T00:00:00Z' },
+      { ticket_id: 'new-urgent', status: 'ACTIVE', assigned_agent_id: 'a1', priority: 1, created_at: '2026-01-03T00:00:00Z' },
+      { ticket_id: 'new-low', status: 'ACTIVE', assigned_agent_id: 'a1', priority: 4, created_at: '2026-01-02T00:00:00Z' },
+      { id: 'new-low', status: 'ACTIVE', assigned_agent_id: 'a1', priority: 4, created_at: '2026-01-02T00:00:00Z' },
     ], customers, admins)
     expect(rows.map(r => r.ticket_id)).toEqual(['new-urgent', 'old-low', 'new-low'])
   })

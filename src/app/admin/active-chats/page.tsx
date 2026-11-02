@@ -10,8 +10,6 @@ import { timeAgo } from '@/lib/utils'
 import type { ActiveChatRow } from '@/lib/services/active-chats'
 import type { TicketStatus } from '@/types/app'
 
-const UNASSIGNED = '__unassigned__'
-
 async function fetchActiveChats(signal?: AbortSignal): Promise<ActiveChatRow[]> {
   const res = await fetch(`/api/active-chats?t=${Date.now()}`, { cache: 'no-store', signal })
   if (!res.ok) throw new Error(`Request failed (HTTP ${res.status})`)
@@ -60,7 +58,6 @@ export default function ActiveChatsPage() {
   const admins = useMemo(() => {
     const map = new Map<string, { name: string; count: number }>()
     for (const c of chats) {
-      if (!c.admin) continue
       const entry = map.get(c.admin.id) ?? { name: c.admin.name, count: 0 }
       entry.count += 1
       map.set(c.admin.id, entry)
@@ -68,15 +65,12 @@ export default function ActiveChatsPage() {
     return Array.from(map, ([id, v]) => ({ id, ...v })).sort((a, b) => a.name.localeCompare(b.name))
   }, [chats])
 
-  const unassignedCount = chats.filter(c => !c.admin).length
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return chats.filter(c => {
-      if (adminFilter === UNASSIGNED && c.admin) return false
-      if (adminFilter && adminFilter !== UNASSIGNED && c.admin?.id !== adminFilter) return false
+      if (adminFilter && c.admin.id !== adminFilter) return false
       if (!q) return true
-      return [c.ticket_number, c.subject, c.customer.name, c.customer.email, c.admin?.name]
+      return [c.ticket_number, c.subject, c.customer.name, c.customer.email, c.admin.name]
         .some(v => v?.toLowerCase().includes(q))
     })
   }, [chats, search, adminFilter])
@@ -87,7 +81,7 @@ export default function ActiveChatsPage() {
         <div className="flex-1">
           <h1 className="text-base font-semibold text-gray-900">Active Chats</h1>
           <p className="text-xs text-gray-500">
-            {chats.length} open · {chats.length - unassignedCount} with an admin · {unassignedCount} unassigned
+            {chats.length} open {chats.length === 1 ? 'chat' : 'chats'} · {admins.length} {admins.length === 1 ? 'admin' : 'admins'}
           </p>
         </div>
 
@@ -107,7 +101,6 @@ export default function ActiveChatsPage() {
           className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 bg-white"
         >
           <option value="">All admins</option>
-          <option value={UNASSIGNED}>Unassigned ({unassignedCount})</option>
           {admins.map(a => <option key={a.id} value={a.id}>{a.name} ({a.count})</option>)}
         </select>
       </div>
@@ -145,13 +138,7 @@ export default function ActiveChatsPage() {
                     {c.customer.email && <p className="text-xs text-gray-400 mt-0.5">{c.customer.email}</p>}
                   </td>
                   <td className="px-4 py-3">
-                    {c.admin ? (
-                      <span className="text-gray-900">{c.admin.name}</span>
-                    ) : (
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800">
-                        Unassigned
-                      </span>
-                    )}
+                    <span className="text-gray-900">{c.admin.name}</span>
                   </td>
                   <td className="px-4 py-3 max-w-xs">
                     <p className="truncate text-gray-900">{c.subject}</p>
