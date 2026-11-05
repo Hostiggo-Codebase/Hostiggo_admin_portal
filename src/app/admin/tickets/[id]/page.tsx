@@ -8,6 +8,7 @@ import { TicketSidePanel } from '@/components/admin/ticket-side-panel'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { VideoUpload } from '@/components/video/video-upload'
 import type { TicketStatus, TicketWithDetails } from '@/types/app'
+import { getAdminAccess } from '@/lib/auth/admin-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +18,8 @@ export default async function AdminTicketPage({ params }: { params: Promise<{ id
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+  const admin = await getAdminAccess(supabase as any, user.id)
+  if (!admin) redirect('/admin/queue')
 
   const normalizeExternalTicket = (row: Record<string, unknown>): TicketWithDetails => ({
     ...row,
@@ -66,8 +69,16 @@ export default async function AdminTicketPage({ params }: { params: Promise<{ id
     redirect('/admin/queue')
   }
 
-  const role = user.app_metadata?.role
-  const isSA = role === 'super_admin'
+  const { data: externalOwner, error: externalOwnerError } = await (supabase as any)
+    .rpc('get_external_ticket_owner', { p_ticket_id: id })
+  const ownerId = externalOwner || ticket.assigned_agent_id || null
+  const adminCanOpen = admin.role === 'super_admin'
+    || (ownerId === user.id && !externalOwnerError)
+  if (!adminCanOpen) {
+    redirect('/admin/queue')
+  }
+
+  const isSA = admin.role === 'super_admin'
 
   return (
     <div className="flex h-full overflow-hidden">

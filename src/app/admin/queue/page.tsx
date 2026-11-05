@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getQueueTickets, fetchReviewBatch } from '@/lib/services/ticketService'
+import { getQueueTickets, fetchReviewBatch, takeTicket } from '@/lib/services/ticketService'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { timeAgo } from '@/lib/utils'
 import type { TicketStatus, PriorityLabel } from '@/types/app'
@@ -19,6 +19,7 @@ export default function QueuePage() {
   const [filterStatus, setFilterStatus] = useState<TicketStatus | ''>('')
   const [filterPriority, setFilterPriority] = useState<PriorityLabel | ''>('')
   const [titleBackfill, setTitleBackfill] = useState('')
+  const [claimError, setClaimError] = useState('')
   const qc = useQueryClient()
 
   const { data: tickets = [], isLoading, isError } = useQuery({
@@ -99,6 +100,22 @@ export default function QueuePage() {
     },
   })
 
+  const claimM = useMutation({
+    mutationFn: (ticketId: string) => takeTicket(ticketId),
+    onSuccess: async (_, ticketId) => {
+      setClaimError('')
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['queue'] }),
+        qc.invalidateQueries({ queryKey: ['my-assigned'] }),
+      ])
+      router.push(`/admin/tickets/${ticketId}`)
+    },
+    onError: (error: Error) => {
+      setClaimError(error.message || 'Could not take ticket. It may have been claimed already.')
+      void qc.invalidateQueries({ queryKey: ['queue'] })
+    },
+  })
+
   const filtered = tickets.filter(t =>
     (!filterStatus   || t.status === filterStatus) &&
     (!filterPriority || t.priority_label === filterPriority)
@@ -154,6 +171,9 @@ export default function QueuePage() {
           Unable to update tickets. Retrying automatically…
         </p>
       )}
+      {claimError && (
+        <p role="alert" className="border-b bg-amber-50 px-5 py-2 text-xs text-amber-800">{claimError}</p>
+      )}
 
       {/* Table */}
       <div className="flex-1 overflow-y-auto">
@@ -196,10 +216,23 @@ export default function QueuePage() {
                   <td className="px-4 py-3"><StatusBadge status={t.status as TicketStatus} /></td>
                   <td className="px-4 py-3 text-xs text-gray-400">{timeAgo(t.created_at)}</td>
                   <td className="px-4 py-3">
-                    <Link href={`/admin/tickets/${t.ticket_id}`}
-                      className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">
-                      {t.status === 'QUEUED' ? 'Take →' : 'Open →'}
-                    </Link>
+                    {t.canTake ? (
+                      <button
+                        onClick={() => claimM.mutate(t.ticket_id)}
+                        disabled={claimM.isPending && claimM.variables === t.ticket_id}
+                        className="text-xs font-medium text-indigo-600 hover:text-indigo-800 disabled:opacity-60"
+                      >
+                        {claimM.isPending && claimM.variables === t.ticket_id ? 'Taking…' : 'Take →'}
+                      </button>
+                    ) : t.canOpen ? (
+                      <Link href={`/admin/tickets/${t.ticket_id}`} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">
+                        Open →
+                      </Link>
+                    ) : (
+                      <button disabled className="cursor-not-allowed rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-400">
+                        {t.assigned_agent_id ? 'Taken' : 'Unavailable'}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -109,13 +109,13 @@ export function useTicketChat(ticketId: string) {
 
     const handleGlobalChatActivity = (event: any) => {
       if (event?.ticket_id !== ticketId) return
-      console.log('[Socket.io Admin] Message received from Socket.io global activity:', {
+      console.log('[Socket.io Admin] Chat activity received for the open ticket:', {
         ticketId,
-        messageId: event?.message?.id,
-        senderType: event?.message?.sender_type,
+        messageId: event?.message_id,
+        senderType: event?.sender_type,
         transport: socket.io.engine.transport.name,
       })
-      appendSocketMessage(event?.message)
+      void queryClient.invalidateQueries({ queryKey: ['messages', ticketId] })
     }
 
     const handleTicketUpdated = (data: any) => {

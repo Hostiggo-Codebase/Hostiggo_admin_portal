@@ -53,7 +53,7 @@ export function TicketSidePanel({ ticket, isSuperAdmin }: Props) {
 
   const { ticket_id, ticket_number, subject, status, priority_label, created_at, first_response_at, complaint_categories, ticket_status_history = [] } = ticket
 
-  const isQueued = status === 'QUEUED' || status === 'ASSIGNED'
+  const isQueued = status === 'QUEUED'
   const isActive = status === 'ACTIVE'
   const isWaiting = status === 'WAITING_ON_USER'
   const isEscalated = status === 'ESCALATED'
