@@ -34,6 +34,21 @@ export async function GET() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE })
   }
 
+  // Secondary app tickets don't have assignment columns. Their owner is kept
+  // in the admin portal DB, so resolve it before building the active chat list.
+  const { data: externalAssignments, error: assignmentsError } = await (supabase as any)
+    .rpc('get_external_ticket_assignments')
+  if (assignmentsError) {
+    console.error('Active chats assignment lookup failed:', assignmentsError)
+    return NextResponse.json({ error: 'Could not load ticket assignments' }, { status: 503, headers: NO_STORE })
+  }
+  const externalOwners = new Map<string, { id: string; assignedAt: string | null }>(
+    (externalAssignments ?? []).map((row: { ticket_id: string; assigned_agent_id: string; assigned_at: string | null }) => [
+      row.ticket_id,
+      { id: row.assigned_agent_id, assignedAt: row.assigned_at },
+    ]),
+  )
+
   // RLS lets an agent see only their own and queued tickets (and only their own
   // admin_users row). This page is a read-only overview of every open chat, so
   // read with the service role when it is configured.
@@ -69,7 +84,12 @@ export async function GET() {
     }
 
     // Local rows win over mobile-app rows with the same id, matching /api/queue.
-    const tickets = [...bridged, ...localTickets]
+    const tickets = [...bridged.map(ticket => {
+      const owner = ticket.ticket_id ? externalOwners.get(ticket.ticket_id) : undefined
+      return owner && !ticket.assigned_agent_id
+        ? { ...ticket, assigned_agent_id: owner.id, assigned_at: ticket.assigned_at || owner.assignedAt }
+        : ticket
+    }), ...localTickets]
     const customerIds = Array.from(new Set(tickets.map(t => t.user_id).filter((v): v is string => !!v)))
     const adminIds = Array.from(new Set(tickets.map(t => t.assigned_agent_id).filter((v): v is string => !!v)))
 
