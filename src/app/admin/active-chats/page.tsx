@@ -9,6 +9,8 @@ import { timeAgo } from '@/lib/utils'
 import type { ActiveChatRow } from '@/lib/services/active-chats'
 import type { TicketStatus } from '@/types/app'
 
+const UNASSIGNED = '__unassigned__'
+
 async function fetchActiveChats(signal?: AbortSignal): Promise<ActiveChatRow[]> {
   const res = await fetch(`/api/active-chats?t=${Date.now()}`, { cache: 'no-store', signal })
   if (!res.ok) throw new Error(`Request failed (HTTP ${res.status})`)
@@ -57,6 +59,7 @@ export default function ActiveChatsPage() {
   const admins = useMemo(() => {
     const map = new Map<string, { name: string; count: number }>()
     for (const c of chats) {
+      if (!c.admin) continue
       const entry = map.get(c.admin.id) ?? { name: c.admin.name, count: 0 }
       entry.count += 1
       map.set(c.admin.id, entry)
@@ -67,9 +70,11 @@ export default function ActiveChatsPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return chats.filter(c => {
-      if (adminFilter && c.admin.id !== adminFilter) return false
+      if (adminFilter === UNASSIGNED) {
+        if (c.admin) return false
+      } else if (adminFilter && c.admin?.id !== adminFilter) return false
       if (!q) return true
-      return [c.ticket_number, c.subject, c.customer.name, c.customer.email, c.admin.name]
+      return [c.ticket_number, c.subject, c.customer.name, c.customer.email, c.admin?.name]
         .some(v => v?.toLowerCase().includes(q))
     })
   }, [chats, search, adminFilter])
@@ -100,6 +105,9 @@ export default function ActiveChatsPage() {
           className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 bg-white"
         >
           <option value="">All admins</option>
+          {chats.some(c => !c.admin) && (
+            <option value={UNASSIGNED}>Unassigned ({chats.filter(c => !c.admin).length})</option>
+          )}
           {admins.map(a => <option key={a.id} value={a.id}>{a.name} ({a.count})</option>)}
         </select>
       </div>
@@ -137,7 +145,9 @@ export default function ActiveChatsPage() {
                     {c.customer.email && <p className="text-xs text-gray-400 mt-0.5">{c.customer.email}</p>}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="text-gray-900">{c.admin.name}</span>
+                    {c.admin
+                      ? <span className="text-gray-900">{c.admin.name}</span>
+                      : <span className="text-gray-400 italic">Unassigned</span>}
                   </td>
                   <td className="px-4 py-3 max-w-xs">
                     <p className="truncate text-gray-900">{c.subject}</p>

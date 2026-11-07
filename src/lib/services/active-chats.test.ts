@@ -23,14 +23,16 @@ describe('buildActiveChats', () => {
     expect(row.admin).toEqual({ id: 'a1', name: 'Riya Agent' })
   })
 
-  it('excludes unassigned chats and falls back to short ids when names are unknown', () => {
+  it('includes new unassigned chats and falls back to short ids when names are unknown', () => {
     const rows = buildActiveChats([
-      { ticket_id: 'queued', status: 'QUEUED', user_id: 'abcdef1234567890' },
-      { ticket_id: 'orphan', status: 'ACTIVE', assigned_agent_id: 'zzzzzzzz-1' },
+      { ticket_id: 'queued', status: 'QUEUED', user_id: 'abcdef1234567890', created_at: '2026-01-01T00:00:00Z' },
+      { ticket_id: 'orphan', status: 'ACTIVE', assigned_agent_id: 'zzzzzzzz-1', created_at: '2026-01-02T00:00:00Z' },
     ], customers, admins)
-    expect(rows.map(r => r.ticket_id)).toEqual(['orphan'])
-    expect(rows[0].admin.name).toBe('Admin zzzzzzzz')
-    expect(rows[0].customer.name).toBe('Unknown customer')
+    expect(rows.map(r => r.ticket_id)).toEqual(['queued', 'orphan'])
+    expect(rows[0].admin).toBeNull()
+    expect(rows[0].customer.name).toBe('Customer abcdef12')
+    expect(rows[1].admin?.name).toBe('Admin zzzzzzzz')
+    expect(rows[1].customer.name).toBe('Unknown customer')
   })
 
   it('dedupes by ticket id and sorts by priority then age', () => {

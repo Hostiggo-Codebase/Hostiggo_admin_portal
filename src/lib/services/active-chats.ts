@@ -32,7 +32,8 @@ export type ActiveChatRow = {
   assigned_at: string | null
   last_activity_at: string
   customer: { id: string | null; name: string; email: string | null }
-  admin: { id: string; name: string }
+  // null while the chat is still waiting in the queue for an admin.
+  admin: { id: string; name: string } | null
 }
 
 const shortId = (id: string) => id.slice(0, 8)
@@ -50,14 +51,13 @@ export function buildActiveChats(
 
   for (const t of tickets) {
     const id = t.ticket_id || t.id
-    // Only chats that already have an admin; unassigned ones live in the Queue.
-    if (!id || !isOpenStatus(t.status) || !t.assigned_agent_id) continue
+    if (!id || !isOpenStatus(t.status)) continue
 
     const created = t.created_at || new Date().toISOString()
     const customerId = t.user_id ?? null
     const customer = customerId ? customers.get(customerId) : undefined
-    const adminId = t.assigned_agent_id
-    const admin = admins.get(adminId)
+    const adminId = t.assigned_agent_id || null
+    const admin = adminId ? admins.get(adminId) : undefined
 
     byId.set(id, {
       ticket_id: id,
@@ -74,7 +74,7 @@ export function buildActiveChats(
         name: customer?.name || (customerId ? `Customer ${shortId(customerId)}` : 'Unknown customer'),
         email: customer?.email ?? null,
       },
-      admin: { id: adminId, name: admin?.name || `Admin ${shortId(adminId)}` },
+      admin: adminId ? { id: adminId, name: admin?.name || `Admin ${shortId(adminId)}` } : null,
     })
   }
 
