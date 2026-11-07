@@ -33,7 +33,7 @@ export type ActiveChatRow = {
   last_activity_at: string
   customer: { id: string | null; name: string; email: string | null }
   // null while the chat is still waiting in the queue for an admin.
-  admin: { id: string; name: string } | null
+  admin: { id: string; name: string; email: string | null } | null
 }
 
 const shortId = (id: string) => id.slice(0, 8)
@@ -74,7 +74,11 @@ export function buildActiveChats(
         name: customer?.name || (customerId ? `Customer ${shortId(customerId)}` : 'Unknown customer'),
         email: customer?.email ?? null,
       },
-      admin: adminId ? { id: adminId, name: admin?.name || `Admin ${shortId(adminId)}` } : null,
+      admin: adminId ? {
+        id: adminId,
+        name: admin?.name || `Admin ${shortId(adminId)}`,
+        email: admin?.email ?? null,
+      } : null,
     })
   }
 

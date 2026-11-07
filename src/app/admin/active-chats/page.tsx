@@ -74,7 +74,7 @@ export default function ActiveChatsPage() {
         if (c.admin) return false
       } else if (adminFilter && c.admin?.id !== adminFilter) return false
       if (!q) return true
-      return [c.ticket_number, c.subject, c.customer.name, c.customer.email, c.admin?.name]
+      return [c.ticket_number, c.subject, c.customer.name, c.customer.email, c.admin?.name, c.admin?.email]
         .some(v => v?.toLowerCase().includes(q))
     })
   }, [chats, search, adminFilter])
@@ -146,7 +146,7 @@ export default function ActiveChatsPage() {
                   </td>
                   <td className="px-4 py-3">
                     {c.admin
-                      ? <span className="text-gray-900">{c.admin.name}</span>
+                      ? <span className="text-gray-900">{c.admin.email || c.admin.name}</span>
                       : <span className="text-gray-400 italic">Unassigned</span>}
                   </td>
                   <td className="px-4 py-3 max-w-xs">

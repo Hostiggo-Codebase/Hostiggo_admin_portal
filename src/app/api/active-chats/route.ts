@@ -106,9 +106,11 @@ export async function GET() {
       (async () => {
         if (!adminIds.length) return
         const { data, error } = await (db as any).from('admin_users')
-          .select('admin_id, display_name').in('admin_id', adminIds).abortSignal(timeout())
+          .select('admin_id, display_name, email').in('admin_id', adminIds).abortSignal(timeout())
         if (error) throw error
-        for (const row of (data ?? []) as { admin_id: string; display_name: string }[]) admins.set(row.admin_id, { name: row.display_name, email: null })
+        for (const row of (data ?? []) as { admin_id: string; display_name: string; email: string | null }[]) {
+          admins.set(row.admin_id, { name: row.display_name, email: row.email })
+        }
       })().catch(error => console.error('Active chats admin lookup failed:', error)),
     ])
 
