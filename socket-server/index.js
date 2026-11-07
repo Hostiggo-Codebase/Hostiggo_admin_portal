@@ -176,7 +176,14 @@ const normalizeSenderType = (t) => (t === 'agent' || t === 'system' ? t : 'user'
 // the guest/host app is also in. Admin UIs pick them up via /api/messages.
 const emitMessage = (ticket_id, message) => {
   if (!message.is_internal_note) io.to(`ticket:${ticket_id}`).emit('new_message', message)
-  io.to('agents').emit('global_chat_activity', { ticket_id, message })
+  // Queue subscribers need an invalidation signal only. Never send chat text
+  // to every admin: assigned-ticket messages stay in their ticket room.
+  io.to('agents').emit('global_chat_activity', {
+    ticket_id,
+    message_id: message.id,
+    sender_type: message.sender_type,
+    created_at: message.created_at,
+  })
   // A customer message can be a brand-new ticket: make every open admin queue refresh right away.
   if (message.sender_type === 'user') io.to('agents').emit('queue_updated', { ticket_id })
 }

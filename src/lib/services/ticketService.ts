@@ -38,6 +38,9 @@ export type TicketListRow = {
   assigned_at: string | null
   first_response_at: string | null
   assigned_agent_id: string | null
+  canTake?: boolean
+  canOpen?: boolean
+  isAssignedToCurrentAdmin?: boolean
   complaint_categories: { name: string } | null
   rating?: number | null
 }
@@ -127,21 +130,19 @@ export async function sendMessage(params: SendMessageParams): Promise<SentMessag
         isInternalNote: params.isInternalNote ?? false,
       }),
     })
-    if (res.ok) {
-      const { messageId, message } = await res.json()
-      if (messageId) return { messageId, message }
+    const payload = await res.json().catch(() => null)
+    if (!res.ok) {
+      throw new Error(payload?.error || `Message API failed (${res.status})`)
     }
+    if (payload?.messageId) return { messageId: payload.messageId, message: payload.message }
+    throw new Error('Message API returned success without a saved message')
   } catch (e) {
-    console.log('Error sending /api/messages:', e)
+    // The API selects the correct database for this ticket. Retrying through
+    // the browser's primary Supabase client can silently target another
+    // project and make a failed message look like a generic RPC error.
+    console.error('Error sending /api/messages:', e)
+    throw e
   }
-
-  const { data, error } = await rpc('send_message', {
-    p_ticket_id:        params.ticketId,
-    p_body:             params.body,
-    p_is_internal_note: params.isInternalNote ?? false,
-  })
-  if (error) throw error
-  return { messageId: data as string }
 }
 
 // ---------------------------------------------------------------------------
@@ -149,35 +150,33 @@ export async function sendMessage(params: SendMessageParams): Promise<SentMessag
 // ---------------------------------------------------------------------------
 
 export async function getQueueTickets(signal?: AbortSignal): Promise<TicketListRow[]> {
-  try {
-    const res = await fetch(`/api/queue?t=${Date.now()}`, { cache: 'no-store', signal })
-    if (res.ok) {
-      const data = await res.json()
-      if (Array.isArray(data)) {
-        return data as TicketListRow[]
-      }
-    }
-  } catch (e) {
-    if (signal?.aborted) throw e
-    console.log('Error fetching /api/queue:', e)
-  }
-
-  signal?.throwIfAborted()
-  const supabase = createClient()
-  const { data, error } = await supabase
-    .from('support_tickets')
-    .select('ticket_id, ticket_number, subject, status, priority, priority_label, queued_at, assigned_at, first_response_at, created_at, assigned_agent_id, complaint_categories(name)')
-    .in('status', ['QUEUED','ASSIGNED','ACTIVE','WAITING_ON_USER','ESCALATED','REOPENED'])
-    .order('priority', { ascending: true })
-    .abortSignal(signal ?? new AbortController().signal)
-  if (error) throw error
-  return (data ?? []) as unknown as TicketListRow[]
+  const res = await fetch(`/api/queue?t=${Date.now()}`, { cache: 'no-store', signal })
+  const payload = await res.json().catch(() => null)
+  if (!res.ok) throw new Error(payload?.error || `Queue API failed (HTTP ${res.status})`)
+  if (!Array.isArray(payload)) throw new Error('Queue API returned an invalid response')
+  return payload as TicketListRow[]
 }
 
 export async function getMyAssignedTickets(): Promise<TicketListRow[]> {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('unauthenticated')
+
+  // The admin API merges assignment ownership for tickets from the separate
+  // customer app database, where assigned_agent_id is intentionally absent.
+  try {
+    const response = await fetch(`/api/queue?t=${Date.now()}`, { cache: 'no-store' })
+    if (response.ok) {
+      const tickets = await response.json()
+      if (Array.isArray(tickets)) {
+        return tickets.filter((ticket: TicketListRow) =>
+          ticket.assigned_agent_id === user.id && ['ASSIGNED', 'ACTIVE', 'WAITING_ON_USER'].includes(ticket.status),
+        ) as TicketListRow[]
+      }
+    }
+  } catch (error) {
+    console.warn('Could not load external assignments through queue API:', error)
+  }
 
   let fdwTickets: any[] = []
   let localTickets: any[] = []
@@ -274,19 +273,13 @@ export async function transferTicket(ticketId: string, toAgent: string): Promise
 
 // Claim one specific QUEUED ticket for the calling agent → sets to ACTIVE
 export async function takeTicket(ticketId: string): Promise<void> {
-  try {
-    const res = await fetch('/api/tickets/action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'take_ticket', ticketId }),
-    })
-    if (res.ok) return
-  } catch (e) {
-    console.log('Error in API ticket action takeTicket:', e)
-  }
-
-  const { error } = await rpc('take_ticket', { p_ticket_id: ticketId })
-  if (error) throw error
+  const res = await fetch('/api/tickets/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'take_ticket', ticketId }),
+  })
+  const result = await res.json().catch(() => null)
+  if (!res.ok) throw new Error(result?.error || `Could not take ticket (HTTP ${res.status})`)
 }
 
 // Claim up to `limit` QUEUED tickets in priority order (batch review workflow)

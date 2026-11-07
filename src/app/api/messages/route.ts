@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { secondaryClient } from '@/lib/supabase/secondary'
-import { after, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { nvidiaChatCompletion } from '@/lib/ai/nvidia'
+import { getAdminAccess } from '@/lib/auth/admin-access'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -9,6 +10,33 @@ export const fetchCache = 'force-no-store'
 
 const TITLE_AFTER_CUSTOMER_MESSAGES = 3
 const TITLE_PENDING_PREFIX = 'Support request'
+
+async function authorizeTicketAccess(supabase: Awaited<ReturnType<typeof createClient>>, userId: string, ticketId: string) {
+  const admin = await getAdminAccess(supabase as any, userId)
+  const [secondaryResult, localResult] = await Promise.allSettled([
+    secondaryClient.from('support_tickets').select('*').eq('ticket_id', ticketId).maybeSingle(),
+    supabase.from('support_tickets').select('ticket_id, user_id, assigned_agent_id, status').eq('ticket_id', ticketId).maybeSingle(),
+  ])
+  const secondaryTicket = secondaryResult.status === 'fulfilled' && !secondaryResult.value.error ? secondaryResult.value.data : null
+  const localTicket = localResult.status === 'fulfilled' && !localResult.value.error ? localResult.value.data : null
+  const ticket = secondaryTicket || localTicket
+  if (!ticket) return { allowed: false, isAdmin: Boolean(admin), isSuperAdmin: admin?.role === 'super_admin' }
+
+  if (admin) {
+    const isSuperAdmin = admin.role === 'super_admin'
+    let ownerId = ticket.assigned_agent_id || null
+    if (secondaryTicket) {
+      const { data: externalOwner, error } = await (supabase as any)
+        .rpc('get_external_ticket_owner', { p_ticket_id: ticketId })
+      if (error) throw error
+      ownerId = externalOwner
+    }
+    const ownsTicket = ownerId === userId
+    return { allowed: isSuperAdmin || ownsTicket, isAdmin: true, isSuperAdmin }
+  }
+
+  return { allowed: ticket.user_id === userId, isAdmin: false, isSuperAdmin: false }
+}
 
 function safeTitle(value: string): string | null {
   const title = value
@@ -92,6 +120,10 @@ export async function GET(request: Request) {
 
   try {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    const access = await authorizeTicketAccess(supabase, user.id, ticketId)
+    if (!access.allowed) return NextResponse.json({ error: 'You do not have access to this ticket' }, { status: 403 })
     // Read the app and local databases together. The FDW bridge can be down
     // even while the app database is healthy; it must not block opening chat.
     const [secondary, local] = await Promise.allSettled([
@@ -114,7 +146,7 @@ export async function GET(request: Request) {
         (message) => message.sender_type === 'user' && !message.is_internal_note,
       )
       if (customerMessages.length >= TITLE_AFTER_CUSTOMER_MESSAGES) {
-        after(() => maybeGenerateTicketTitle(ticketId))
+        void maybeGenerateTicketTitle(ticketId)
       }
     }
 
@@ -194,7 +226,8 @@ export async function GET(request: Request) {
 
     combined.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
 
-    return NextResponse.json(combined)
+    const visibleMessages = access.isAdmin ? combined : combined.filter((message) => !message.is_internal_note)
+    return NextResponse.json(visibleMessages)
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
@@ -205,39 +238,55 @@ export async function POST(request: Request) {
     const { ticketId, body, isInternalNote } = await request.json()
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
-
-    const agentId = user?.id || '00000000-0000-0000-0000-000000000000'
+    if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
 
     if (typeof body !== 'string' || !body.trim() || typeof ticketId !== 'string') {
       return NextResponse.json({ error: 'ticketId and message body are required' }, { status: 400 })
     }
+    const access = await authorizeTicketAccess(supabase, user.id, ticketId)
+    if (!access.allowed) return NextResponse.json({ error: 'You do not have access to this ticket' }, { status: 403 })
+    if (isInternalNote && !access.isAdmin) return NextResponse.json({ error: 'Only admins can add internal notes' }, { status: 403 })
 
-    // 1. Try Secondary Supabase DB direct insert (for mobile app tickets)
-    try {
+    const senderType = access.isAdmin ? 'agent' : 'user'
+    const senderId = user.id
+
+    // Tickets from the customer/mobile app live in the secondary project.
+    // Select the database by ticket ownership before writing: falling through
+    // to the primary database after a secondary write error creates a message
+    // that the customer app can never read.
+    const { data: secondaryTicket, error: secondaryTicketError } = await secondaryClient
+      .from('support_tickets')
+      .select('ticket_id')
+      .eq('ticket_id', ticketId)
+      .maybeSingle()
+
+    if (secondaryTicketError) {
+      console.error('Secondary ticket lookup failed:', secondaryTicketError)
+      return NextResponse.json({ error: 'Could not locate the ticket database' }, { status: 502 })
+    }
+
+    if (secondaryTicket) {
       const { data: secMsg, error: secErr } = await secondaryClient
         .from('chat_messages')
         .insert({
           ticket_id: ticketId,
-          sender_id: agentId,
-          sender_type: 'agent',
-          body: body,
+          sender_id: senderId,
+          sender_type: senderType,
+          body: body.trim(),
           is_internal_note: isInternalNote ?? false,
         })
         .select()
         .single()
 
-      if (!secErr && secMsg) {
-        if (secMsg.sender_type === 'user' && !secMsg.is_internal_note) {
-          // Run after the response: model latency must not delay chat delivery.
-          after(() => maybeGenerateTicketTitle(ticketId))
-        }
-        return NextResponse.json({ success: true, messageId: secMsg.id, message: secMsg })
+      if (secErr || !secMsg) {
+        console.error('Secondary DB message insert failed:', secErr)
+        return NextResponse.json({ error: secErr?.message || 'Message could not be saved' }, { status: 502 })
       }
-    } catch (e) {
-      console.log('Secondary DB msg send error:', e)
+
+      return NextResponse.json({ success: true, messageId: secMsg.id, message: secMsg })
     }
 
-    // 2. Fallback to local RPC send_message
+    // Primary-project tickets use the authenticated RPC.
     const { data: rpcMessageId, error } = await (supabase as any).rpc('send_message', {
       p_ticket_id: ticketId,
       p_body: body,
@@ -250,8 +299,8 @@ export async function POST(request: Request) {
         .from('chat_messages')
         .insert({
           ticket_id: ticketId,
-          sender_id: agentId,
-          sender_type: 'agent',
+          sender_id: senderId,
+          sender_type: senderType,
           body: body,
           is_internal_note: isInternalNote ?? false,
         })
@@ -259,7 +308,7 @@ export async function POST(request: Request) {
         .single()
 
       if (localMsg) {
-        if (!isInternalNote) after(() => maybeGenerateTicketTitle(ticketId))
+        if (!isInternalNote) void maybeGenerateTicketTitle(ticketId)
         return NextResponse.json({ success: true, messageId: (localMsg as any).id, message: localMsg })
       }
       throw error
@@ -268,14 +317,14 @@ export async function POST(request: Request) {
     const synthesizedRpcMsg = {
       id: rpcMessageId || crypto.randomUUID(),
       ticket_id: ticketId,
-      sender_id: agentId,
-      sender_type: 'agent',
+      sender_id: senderId,
+      sender_type: senderType,
       body: body,
       is_internal_note: isInternalNote ?? false,
       created_at: new Date().toISOString(),
     }
 
-    if (!isInternalNote) after(() => maybeGenerateTicketTitle(ticketId))
+    if (!isInternalNote) void maybeGenerateTicketTitle(ticketId)
 
     return NextResponse.json({ success: true, messageId: rpcMessageId, message: synthesizedRpcMsg })
   } catch (error: any) {
